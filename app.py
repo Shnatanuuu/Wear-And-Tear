@@ -656,7 +656,8 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         
         self.canv.restoreState()
 
-def generate_pdf():
+
+ def generate_pdf():
     buffer = io.BytesIO()
     
     # Get location info
@@ -822,7 +823,6 @@ def generate_pdf():
     form_data = st.session_state.form_data
     
     # Translate ALL form data for PDF based on selected language
-    # This ensures everything is properly translated when PDF language is Mandarin
     translated_po_number = translate_form_data_for_pdf(form_data['po_number'], pdf_lang)
     translated_factory = translate_form_data_for_pdf(form_data['factory'], pdf_lang)
     translated_color = translate_form_data_for_pdf(form_data['color'], pdf_lang)
@@ -853,18 +853,28 @@ def generate_pdf():
     translated_approved_by = translate_form_data_for_pdf(form_data['approved_by'], pdf_lang)
     translated_overall_result = translate_form_data_for_pdf(form_data['overall_result'], pdf_lang)
     
-    # Translate extended wear data - ALL questions and responses
+    # FIXED: Translate extended wear data - with proper error handling
     translated_extended_data = {}
     for period in time_periods:
         translated_period = translate_form_data_for_pdf(period, pdf_lang)
         translated_extended_data[translated_period] = {}
-        for q in questions_d:
-            translated_q = translate_form_data_for_pdf(q, pdf_lang)
-            original_response = form_data['extended_data'][period][q]
-            translated_response = translate_form_data_for_pdf(original_response, pdf_lang)
-            translated_extended_data[translated_period][translated_q] = translated_response
+        
+        # Check if period exists in form data
+        if period not in form_data.get('extended_data', {}):
+            # Initialize with default "No" values
+            for q in questions_d:
+                translated_q = translate_form_data_for_pdf(q, pdf_lang)
+                translated_extended_data[translated_period][translated_q] = "No"
+        else:
+            # Use existing data
+            for q in questions_d:
+                translated_q = translate_form_data_for_pdf(q, pdf_lang)
+                # Get the response - handle nested structure
+                response = form_data['extended_data'].get(period, {}).get(q, "No")
+                translated_response = translate_form_data_for_pdf(response, pdf_lang)
+                translated_extended_data[translated_period][translated_q] = translated_response
     
-    # Translate comfort data - ALL labels and text
+    # Translate comfort data
     translated_days_to_track = [translate_form_data_for_pdf(day, pdf_lang) for day in days_to_track]
     translated_comfort_scores = {}
     translated_appearance_scores = {}
@@ -872,9 +882,9 @@ def generate_pdf():
     
     for i, day in enumerate(days_to_track):
         translated_day = translated_days_to_track[i]
-        translated_comfort_scores[translated_day] = form_data['comfort_scores'][day]
-        translated_appearance_scores[translated_day] = form_data['appearance_scores'][day]
-        translated_issues[translated_day] = translate_form_data_for_pdf(form_data['issues'][day], pdf_lang)
+        translated_comfort_scores[translated_day] = form_data['comfort_scores'].get(day, 3)
+        translated_appearance_scores[translated_day] = form_data['appearance_scores'].get(day, 3)
+        translated_issues[translated_day] = translate_form_data_for_pdf(form_data['issues'].get(day, ""), pdf_lang)
     
     # Basic Info Table
     if pdf_lang == "zh":
@@ -1078,6 +1088,7 @@ def generate_pdf():
         section_d_title = "5. EXTENDED WEAR TESTING"
     elements.append(Paragraph(section_d_title, heading_style))
     
+    # Use the translated extended data that we prepared earlier
     for period in translated_extended_data.keys():
         period_data = [
             [create_paragraph(question_label, bold=True), 
@@ -1223,7 +1234,6 @@ def generate_pdf():
     doc.build(elements)
     buffer.seek(0)
     return buffer
-
 # Enhanced helper function to display text input with proper translation
 def translated_text_input(label, key, placeholder="", type="text"):
     """Create a text input that properly handles translation between languages"""
