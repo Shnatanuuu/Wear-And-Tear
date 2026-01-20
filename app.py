@@ -39,7 +39,7 @@ st.set_page_config(
 
 # Chinese cities dictionary
 CHINESE_CITIES = {
-    "Guangzhou": "广东",
+    "Guangzhou": "广州",
     "Shenzhen": "深圳",
     "Dongguan": "东莞",
     "Foshan": "佛山",
@@ -273,16 +273,12 @@ def translate_text(text, target_language="zh"):
         return st.session_state.translations_cache[cache_key]
     
     # Don't translate numbers or alphanumeric codes
-    if text.strip().replace('.', '').replace(',', '').replace('-', '').isdigit():
+    if text.strip().replace('.', '').replace(',', '').replace('-', '').replace('/', '').isdigit():
         st.session_state.translations_cache[cache_key] = text
         return text
     
     if not openai_client:
-        # Fallback to simple translations if no API key
-        simple_translations = {
-            "en": {},
-            "zh": {}
-        }
+        # Fallback translations if no API key
         st.session_state.translations_cache[cache_key] = text
         return text
     
@@ -290,7 +286,7 @@ def translate_text(text, target_language="zh"):
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"You are a professional translator. Translate the following text to {target_language}. Only return the translation, no explanations. Preserve any numbers, dates, and special formatting."},
+                {"role": "system", "content": f"You are a professional translator. Translate the following text to {'Chinese (Simplified)' if target_language == 'zh' else 'English'}. Only return the translation, no explanations. Preserve any numbers, dates, and special formatting."},
                 {"role": "user", "content": text}
             ],
             temperature=0.1,
@@ -421,15 +417,16 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
             self.canv.setFillColor(colors.HexColor('#667eea'))
             self.canv.rect(0, self.pagesize[1] - 0.6*inch, self.pagesize[0], 0.6*inch, fill=1, stroke=0)
             
-            # Use Chinese font if needed - FIX: Don't add -Bold to Chinese fonts
+            # Use Chinese font if needed
             font_size = 12
             if self.pdf_language == "zh":
                 self.canv.setFont(self.chinese_font, font_size)
+                header_title = "GRAND STEP (H.K.) LTD - 穿着测试评估"
             else:
                 self.canv.setFont('Helvetica-Bold', font_size)
+                header_title = "GRAND STEP (H.K.) LTD - WEAR TEST ASSESSMENT"
                 
             self.canv.setFillColor(colors.white)
-            header_title = "GRAND STEP (H.K.) LTD - WEAR TEST ASSESSMENT"
             self.canv.drawCentredString(
                 self.pagesize[0]/2.0, 
                 self.pagesize[1] - 0.4*inch, 
@@ -458,7 +455,7 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
             
         self.canv.setFillColor(colors.HexColor('#666666'))
         
-        # Left: Location - Show Chinese city only for Mandarin PDFs
+        # Left: Location
         china_tz = pytz.timezone('Asia/Shanghai')
         current_time = datetime.now(china_tz)
         
@@ -470,11 +467,17 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         self.canv.drawString(0.5*inch, 0.25*inch, location_info)
         
         # Center: Timestamp
-        timestamp = f"Generated: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        if self.pdf_language == "zh":
+            timestamp = f"生成时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        else:
+            timestamp = f"Generated: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
         self.canv.drawCentredString(self.pagesize[0]/2.0, 0.25*inch, timestamp)
         
         # Right: Page number
-        page_num = f"Page {self.page}"
+        if self.pdf_language == "zh":
+            page_num = f"第 {self.page} 页"
+        else:
+            page_num = f"Page {self.page}"
         self.canv.drawRightString(self.pagesize[0] - 0.5*inch, 0.25*inch, page_num)
         
         self.canv.restoreState()
@@ -492,28 +495,20 @@ def generate_pdf():
     
     if pdf_lang == "zh":
         try:
-            # Try to use built-in Chinese font from ReportLab
             try:
                 pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
                 chinese_font = 'STSong-Light'
-                st.info(f"Using Chinese font: {chinese_font}")
             except Exception as e1:
-                st.warning(f"STSong-Light not available: {str(e1)}")
                 try:
-                    # Try other common Chinese fonts
                     pdfmetrics.registerFont(TTFont('SimSun', 'simsun.ttc'))
                     chinese_font = 'SimSun'
                 except Exception as e2:
-                    st.warning(f"SimSun not available: {str(e2)}")
                     try:
                         pdfmetrics.registerFont(TTFont('YaHei', 'msyh.ttc'))
                         chinese_font = 'YaHei'
                     except Exception as e3:
-                        # Fall back to Helvetica
                         chinese_font = 'Helvetica'
-                        st.warning("Chinese fonts not found. Using Helvetica as fallback.")
         except Exception as e:
-            st.warning(f"Could not register Chinese font: {str(e)}")
             chinese_font = 'Helvetica'
     
     # Create PDF with custom header/footer
@@ -538,11 +533,11 @@ def generate_pdf():
     normal_font = 'Helvetica' if pdf_lang != "zh" else chinese_font
     bold_font = 'Helvetica-Bold' if pdf_lang != "zh" else chinese_font
     
-    # Improved title style - smaller font size
+    # Improved title style
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=22,  # Reduced from 28
+        fontSize=22,
         textColor=colors.HexColor('#667eea'),
         spaceAfter=15,
         alignment=TA_CENTER,
@@ -552,11 +547,11 @@ def generate_pdf():
         underlineOffset=-3
     )
     
-    # Company header style - even smaller
+    # Company header style
     company_style = ParagraphStyle(
         'CompanyStyle',
         parent=styles['Heading1'],
-        fontSize=16,  # Smaller than title
+        fontSize=16,
         textColor=colors.HexColor('#333333'),
         spaceAfter=5,
         alignment=TA_CENTER,
@@ -599,7 +594,7 @@ def generate_pdf():
     )
     styles.add(chinese_normal_style)
     
-    # Company Header - smaller and at the top
+    # Company Header
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("GRAND STEP (H.K.) LTD", company_style))
     
@@ -607,16 +602,17 @@ def generate_pdf():
     report_title = translate_pdf_content("WEAR TEST ASSESSMENT REPORT", pdf_lang)
     elements.append(Paragraph(report_title, title_style))
     
-    # Location and date - show Chinese city only for Mandarin
+    # Location and date
     china_tz = pytz.timezone('Asia/Shanghai')
     current_time = datetime.now(china_tz)
     
     if pdf_lang == "zh":
-        location_text = translate_pdf_content(f"地点: {selected_city} ({chinese_city})", pdf_lang)
+        location_text = f"地点: {selected_city} ({chinese_city})"
     else:
         location_text = f"Location: {selected_city}"
     
-    date_text = translate_pdf_content(f"Report Date: {current_time.strftime('%Y-%m-%d')}", pdf_lang)
+    date_label = translate_pdf_content("Report Date", pdf_lang)
+    date_text = f"{date_label}: {current_time.strftime('%Y-%m-%d')}"
     
     elements.append(Paragraph(location_text, subtitle_style))
     elements.append(Paragraph(date_text, subtitle_style))
@@ -631,13 +627,11 @@ def generate_pdf():
         if style is None:
             style = chinese_normal_style if pdf_lang == "zh" else styles['Normal']
         
-        # Create font name based on language and bold requirement
         if bold:
             font_name = bold_font
         else:
             font_name = normal_font
         
-        # Create custom style if needed
         custom_style = ParagraphStyle(
             f"CustomStyle_{bold}",
             parent=style,
@@ -652,23 +646,23 @@ def generate_pdf():
     
     basic_data = [
         [create_paragraph(translate_pdf_content("PO Number:", pdf_lang), bold=True), 
-         create_paragraph(po_number), 
+         create_paragraph(translate_pdf_content(po_number, pdf_lang)), 
          create_paragraph(translate_pdf_content("Color:", pdf_lang), bold=True), 
-         create_paragraph(color)],
+         create_paragraph(translate_pdf_content(color, pdf_lang))],
         [create_paragraph(translate_pdf_content("Brand:", pdf_lang), bold=True), 
-         create_paragraph(brand), 
+         create_paragraph(translate_pdf_content(brand, pdf_lang)), 
          create_paragraph(translate_pdf_content("Date:", pdf_lang), bold=True), 
          create_paragraph(prep_date.strftime('%Y-%m-%d'))],
         [create_paragraph(translate_pdf_content("Factory:", pdf_lang), bold=True), 
-         create_paragraph(factory), 
+         create_paragraph(translate_pdf_content(factory, pdf_lang)), 
          create_paragraph(translate_pdf_content("Style:", pdf_lang), bold=True), 
-         create_paragraph(style)],
+         create_paragraph(translate_pdf_content(style, pdf_lang))],
         [create_paragraph(translate_pdf_content("Description:", pdf_lang), bold=True), 
-         create_paragraph(description), 
+         create_paragraph(translate_pdf_content(description, pdf_lang)), 
          create_paragraph(translate_pdf_content("Sample Type:", pdf_lang), bold=True), 
          create_paragraph(translate_pdf_content(sample_type, pdf_lang))],
         [create_paragraph(translate_pdf_content("Testers:", pdf_lang), bold=True), 
-         create_paragraph(", ".join(testers)), 
+         create_paragraph(translate_pdf_content(", ".join(testers), pdf_lang)), 
          create_paragraph(translate_pdf_content("Fit Sizes:", pdf_lang), bold=True), 
          create_paragraph(", ".join(fit_sizes))]
     ]
@@ -841,10 +835,7 @@ def generate_pdf():
         comfort_color = get_score_color(comfort_scores[day])
         appear_color = get_score_color(appearance_scores[day])
         
-        # Translate issues if needed
-        issue_text = issues[day]
-        if pdf_lang == "zh" and openai_client:
-            issue_text = translate_text(issue_text, "zh")
+        issue_text = translate_pdf_content(issues[day], pdf_lang)
         
         index_data.append([
             create_paragraph(translate_pdf_content(day, pdf_lang)),
@@ -871,18 +862,15 @@ def generate_pdf():
     final_title = translate_pdf_content("7. FINAL ASSESSMENT", pdf_lang)
     elements.append(Paragraph(f"{final_title}", heading_style))
     
-    # Translate overall result
-    translated_result = overall_result
-    if pdf_lang == "zh" and openai_client:
-        translated_result = translate_text(overall_result, "zh")
+    translated_result = translate_pdf_content(overall_result, pdf_lang)
     
     final_data = [
         [create_paragraph(translate_pdf_content("Prepared By:", pdf_lang), bold=True), 
-         create_paragraph(prepared_by), 
+         create_paragraph(translate_pdf_content(prepared_by, pdf_lang)), 
          create_paragraph(translate_pdf_content("Date:", pdf_lang), bold=True), 
          create_paragraph(prep_date.strftime('%Y-%m-%d'))],
         [create_paragraph(translate_pdf_content("Approved By:", pdf_lang), bold=True), 
-         create_paragraph(approved_by), 
+         create_paragraph(translate_pdf_content(approved_by, pdf_lang)), 
          create_paragraph(translate_pdf_content("Overall Result:", pdf_lang), bold=True), 
          create_paragraph(translated_result)]
     ]
@@ -1017,9 +1005,9 @@ st.markdown(f"""
 
 # Create tabs for better organization
 tab1, tab2, tab3 = st.tabs([
-    f"{ICONS['basic_info']} Basic Info",
+    f"{ICONS['basic_info']} {get_text('basic_info')}",
     f"{ICONS['test']} Testing Data",
-    f"{ICONS['assessment']} Assessment"
+    f"{ICONS['assessment']} {get_text('final_assessment')}"
 ])
 
 with tab1:
