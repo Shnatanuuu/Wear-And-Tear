@@ -17,6 +17,7 @@ import os
 from dotenv import load_dotenv
 import base64
 from io import BytesIO
+import re
 
 # Load environment variables
 load_dotenv()
@@ -298,6 +299,10 @@ if 'form_data' not in st.session_state:
         'issues': {}
     }
 
+# Store original English text separately
+if 'original_english_texts' not in st.session_state:
+    st.session_state.original_english_texts = {}
+
 # Initialize extended wear data
 time_periods = ["1 Hour", "1 Day", "1 Week", "2 Weeks", "3 Weeks", "4 Weeks"]
 questions_d = [
@@ -337,9 +342,9 @@ if 'issues' not in st.session_state.form_data:
     for day in days_to_track:
         st.session_state.form_data['issues'][day] = ""
 
-# Translation function using GPT-4o mini
+# Enhanced translation function with better number preservation
 def translate_text(text, target_language="zh", preserve_numbers=True):
-    """Translate text using GPT-4o mini with caching"""
+    """Translate text using GPT-4o mini with enhanced caching and number preservation"""
     if not text or not text.strip():
         return text
     
@@ -348,11 +353,25 @@ def translate_text(text, target_language="zh", preserve_numbers=True):
     if cache_key in st.session_state.translations_cache:
         return st.session_state.translations_cache[cache_key]
     
-    # Don't translate numbers or alphanumeric codes if preserve_numbers is True
+    # Don't translate if it's mostly numbers, codes, or dates
     if preserve_numbers:
-        # Check if text is numeric (including with decimal points, commas, etc.)
-        temp_text = text.strip().replace('.', '').replace(',', '').replace('-', '').replace('/', '').replace(' ', '')
-        if temp_text.isdigit():
+        # Check for common patterns that shouldn't be translated
+        patterns_to_preserve = [
+            r'^\d+[/\-]\d+[/\-]\d+$',  # Dates like 2024-01-15
+            r'^\d+[/\-]\d+$',  # Sizes like 6/8 or 8-10
+            r'^[A-Z]+\d+$',  # Codes like PO1234
+            r'^\d+$',  # Plain numbers
+            r'^\d+\.\d+$',  # Decimal numbers
+            r'^[A-Z]{2,3}\s*\d+$',  # Style codes like ABC 123
+        ]
+        
+        for pattern in patterns_to_preserve:
+            if re.match(pattern, text.strip()):
+                st.session_state.translations_cache[cache_key] = text
+                return text
+        
+        # Check if text contains Chinese characters (already translated)
+        if re.search(r'[\u4e00-\u9fff]', text):
             st.session_state.translations_cache[cache_key] = text
             return text
     
@@ -365,7 +384,11 @@ def translate_text(text, target_language="zh", preserve_numbers=True):
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"You are a professional translator. Translate the following text to {'Chinese (Simplified)' if target_language == 'zh' else 'English'}. Only return the translation, no explanations. Preserve any numbers, dates, codes (like PO numbers), and special formatting exactly as they appear."},
+                {"role": "system", "content": f"""You are a professional translator. 
+                 Translate the following text to {'Simplified Chinese' if target_language == 'zh' else 'English'}. 
+                 IMPORTANT: Preserve all numbers, dates, codes (like PO numbers, sizes), measurements, 
+                 and special formatting exactly as they appear. Only translate the text parts.
+                 Return ONLY the translation, no explanations."""},
                 {"role": "user", "content": text}
             ],
             temperature=0.1,
@@ -383,6 +406,36 @@ def translate_text(text, target_language="zh", preserve_numbers=True):
 def translate_list(text_list, target_language="zh"):
     """Translate a list of texts"""
     return [translate_text(text, target_language) for text in text_list]
+
+# Store and retrieve original English text
+def store_original_text(key, text):
+    """Store original English text for later translation"""
+    if text and text.strip():
+        st.session_state.original_english_texts[key] = text
+
+def get_translated_for_display(key, text, target_language=None):
+    """Get translated text for display based on current UI language"""
+    if not text or not text.strip():
+        return text
+    
+    if target_language is None:
+        target_language = st.session_state.ui_language
+    
+    # Store original if not already stored
+    if key not in st.session_state.original_english_texts:
+        store_original_text(key, text)
+    
+    # If target language is English or no OpenAI client, return as-is
+    if target_language == "en" or not openai_client:
+        return text
+    
+    # If we have original English stored, use it for translation
+    if key in st.session_state.original_english_texts:
+        original = st.session_state.original_english_texts[key]
+        return translate_text(original, target_language)
+    
+    # Otherwise translate the current text
+    return translate_text(text, target_language)
 
 # Helper function to get translated text with caching
 def get_text(key, fallback=None):
@@ -471,33 +524,47 @@ def translate_pdf_content(text, pdf_lang, preserve_numbers=True):
     """Translate text for PDF based on selected language"""
     if pdf_lang == "en" or not openai_client:
         return text
+    
+    # First check if we have original English stored
+    for key, original in st.session_state.original_english_texts.items():
+        if original == text:
+            # Use the stored original for consistent translation
+            return translate_text(original, "zh", preserve_numbers)
+    
+    # Otherwise translate the text
     return translate_text(text, "zh", preserve_numbers)
 
-def translate_form_data(data, pdf_lang):
-    """Translate form data for PDF generation"""
+def translate_form_data_for_pdf(data, pdf_lang):
+    """Translate form data for PDF generation with proper handling"""
     if pdf_lang == "en" or not openai_client:
         return data
     
-    # Don't translate numeric/date data, only translate text descriptions
     if isinstance(data, (int, float)):
         return data
     elif isinstance(data, datetime):
         return data
     elif isinstance(data, list):
-        # For lists (like testers, fit sizes), translate each item
-        return [translate_pdf_content(item, pdf_lang, preserve_numbers=True) for item in data]
+        translated_list = []
+        for item in data:
+            if isinstance(item, str):
+                translated_list.append(translate_pdf_content(item, pdf_lang, preserve_numbers=True))
+            else:
+                translated_list.append(item)
+        return translated_list
     elif isinstance(data, str):
         # Check if it's a date string
         try:
             datetime.strptime(data, '%Y-%m-%d')
             return data  # Don't translate date strings
         except ValueError:
-            # Check if it's mostly numeric (like PO number)
-            temp_data = data.replace(' ', '').replace('-', '').replace('/', '').replace('.', '')
-            if temp_data.isdigit():
-                return data  # Don't translate numeric codes
-            else:
-                return translate_pdf_content(data, pdf_lang, preserve_numbers=True)
+            # Check if it's mostly numeric/alphanumeric
+            temp_data = data.replace(' ', '').replace('-', '').replace('/', '').replace('.', '').replace(',', '')
+            if temp_data.isalnum() and not re.search(r'[\u4e00-\u9fff]', data):
+                # Check if it's likely a code or number
+                if re.match(r'^[A-Za-z]*\d+[A-Za-z]*$', temp_data) or temp_data.isdigit():
+                    return data  # Don't translate codes/numbers
+            # Translate other text
+            return translate_pdf_content(data, pdf_lang, preserve_numbers=True)
     else:
         return translate_pdf_content(str(data), pdf_lang, preserve_numbers=True)
 
@@ -754,46 +821,51 @@ def generate_pdf():
     # Get form data
     form_data = st.session_state.form_data
     
-    # Translate form data for PDF based on selected language
-    translated_po_number = translate_form_data(form_data['po_number'], pdf_lang)
-    translated_factory = translate_form_data(form_data['factory'], pdf_lang)
-    translated_color = translate_form_data(form_data['color'], pdf_lang)
-    translated_style = translate_form_data(form_data['style'], pdf_lang)
-    translated_brand = translate_form_data(form_data['brand'], pdf_lang)
-    translated_description = translate_form_data(form_data['description'], pdf_lang)
-    translated_sample_type = translate_form_data(form_data['sample_type'], pdf_lang)
-    translated_testers = translate_form_data(form_data['testers'], pdf_lang)
-    translated_fit_sizes = translate_form_data(form_data['fit_sizes'], pdf_lang)
-    translated_upper_feel = translate_form_data(form_data['upper_feel'], pdf_lang)
-    translated_lining_feel = translate_form_data(form_data['lining_feel'], pdf_lang)
-    translated_sock_feel = translate_form_data(form_data['sock_feel'], pdf_lang)
-    translated_toe_length = translate_form_data(form_data['toe_length'], pdf_lang)
-    translated_ball_position = translate_form_data(form_data['ball_position'], pdf_lang)
-    translated_shoe_flex = translate_form_data(form_data['shoe_flex'], pdf_lang)
-    translated_arch_support = translate_form_data(form_data['arch_support'], pdf_lang)
-    translated_top_gapping = translate_form_data(form_data['top_gapping'], pdf_lang)
-    translated_fit_properly = translate_form_data(form_data['fit_properly'], pdf_lang)
-    translated_feel_fit = translate_form_data(form_data['feel_fit'], pdf_lang)
-    translated_interior_lining = translate_form_data(form_data['interior_lining'], pdf_lang)
-    translated_feel_stability = translate_form_data(form_data['feel_stability'], pdf_lang)
-    translated_slipping = translate_form_data(form_data['slipping'], pdf_lang)
-    translated_sole_flexibility = translate_form_data(form_data['sole_flexibility'], pdf_lang)
-    translated_toe_room = translate_form_data(form_data['toe_room'], pdf_lang)
-    translated_rubbing = translate_form_data(form_data['rubbing'], pdf_lang)
-    translated_red_marks = translate_form_data(form_data['red_marks'], pdf_lang)
-    translated_prepared_by = translate_form_data(form_data['prepared_by'], pdf_lang)
-    translated_approved_by = translate_form_data(form_data['approved_by'], pdf_lang)
-    translated_overall_result = translate_form_data(form_data['overall_result'], pdf_lang)
+    # Translate ALL form data for PDF based on selected language
+    # This ensures everything is properly translated when PDF language is Mandarin
+    translated_po_number = translate_form_data_for_pdf(form_data['po_number'], pdf_lang)
+    translated_factory = translate_form_data_for_pdf(form_data['factory'], pdf_lang)
+    translated_color = translate_form_data_for_pdf(form_data['color'], pdf_lang)
+    translated_style = translate_form_data_for_pdf(form_data['style'], pdf_lang)
+    translated_brand = translate_form_data_for_pdf(form_data['brand'], pdf_lang)
+    translated_description = translate_form_data_for_pdf(form_data['description'], pdf_lang)
+    translated_sample_type = translate_form_data_for_pdf(form_data['sample_type'], pdf_lang)
+    translated_testers = translate_form_data_for_pdf(form_data['testers'], pdf_lang)
+    translated_fit_sizes = translate_form_data_for_pdf(form_data['fit_sizes'], pdf_lang)
+    translated_upper_feel = translate_form_data_for_pdf(form_data['upper_feel'], pdf_lang)
+    translated_lining_feel = translate_form_data_for_pdf(form_data['lining_feel'], pdf_lang)
+    translated_sock_feel = translate_form_data_for_pdf(form_data['sock_feel'], pdf_lang)
+    translated_toe_length = translate_form_data_for_pdf(form_data['toe_length'], pdf_lang)
+    translated_ball_position = translate_form_data_for_pdf(form_data['ball_position'], pdf_lang)
+    translated_shoe_flex = translate_form_data_for_pdf(form_data['shoe_flex'], pdf_lang)
+    translated_arch_support = translate_form_data_for_pdf(form_data['arch_support'], pdf_lang)
+    translated_top_gapping = translate_form_data_for_pdf(form_data['top_gapping'], pdf_lang)
+    translated_fit_properly = translate_form_data_for_pdf(form_data['fit_properly'], pdf_lang)
+    translated_feel_fit = translate_form_data_for_pdf(form_data['feel_fit'], pdf_lang)
+    translated_interior_lining = translate_form_data_for_pdf(form_data['interior_lining'], pdf_lang)
+    translated_feel_stability = translate_form_data_for_pdf(form_data['feel_stability'], pdf_lang)
+    translated_slipping = translate_form_data_for_pdf(form_data['slipping'], pdf_lang)
+    translated_sole_flexibility = translate_form_data_for_pdf(form_data['sole_flexibility'], pdf_lang)
+    translated_toe_room = translate_form_data_for_pdf(form_data['toe_room'], pdf_lang)
+    translated_rubbing = translate_form_data_for_pdf(form_data['rubbing'], pdf_lang)
+    translated_red_marks = translate_form_data_for_pdf(form_data['red_marks'], pdf_lang)
+    translated_prepared_by = translate_form_data_for_pdf(form_data['prepared_by'], pdf_lang)
+    translated_approved_by = translate_form_data_for_pdf(form_data['approved_by'], pdf_lang)
+    translated_overall_result = translate_form_data_for_pdf(form_data['overall_result'], pdf_lang)
     
-    # Translate extended wear data
+    # Translate extended wear data - ALL questions and responses
     translated_extended_data = {}
     for period in time_periods:
-        translated_extended_data[period] = {}
+        translated_period = translate_form_data_for_pdf(period, pdf_lang)
+        translated_extended_data[translated_period] = {}
         for q in questions_d:
-            translated_extended_data[period][translate_pdf_content(q, pdf_lang)] = translate_form_data(form_data['extended_data'][period][q], pdf_lang)
+            translated_q = translate_form_data_for_pdf(q, pdf_lang)
+            original_response = form_data['extended_data'][period][q]
+            translated_response = translate_form_data_for_pdf(original_response, pdf_lang)
+            translated_extended_data[translated_period][translated_q] = translated_response
     
-    # Translate comfort data
-    translated_days_to_track = [translate_pdf_content(day, pdf_lang) for day in days_to_track]
+    # Translate comfort data - ALL labels and text
+    translated_days_to_track = [translate_form_data_for_pdf(day, pdf_lang) for day in days_to_track]
     translated_comfort_scores = {}
     translated_appearance_scores = {}
     translated_issues = {}
@@ -802,7 +874,7 @@ def generate_pdf():
         translated_day = translated_days_to_track[i]
         translated_comfort_scores[translated_day] = form_data['comfort_scores'][day]
         translated_appearance_scores[translated_day] = form_data['appearance_scores'][day]
-        translated_issues[translated_day] = translate_form_data(form_data['issues'][day], pdf_lang)
+        translated_issues[translated_day] = translate_form_data_for_pdf(form_data['issues'][day], pdf_lang)
     
     # Basic Info Table
     if pdf_lang == "zh":
@@ -811,17 +883,17 @@ def generate_pdf():
         basic_title = "1. BASIC INFORMATION"
     elements.append(Paragraph(basic_title, heading_style))
     
-    # Translate labels
-    po_label = translate_pdf_content("PO Number:", pdf_lang)
-    color_label = translate_pdf_content("Color:", pdf_lang)
-    brand_label = translate_pdf_content("Brand:", pdf_lang)
-    date_label = translate_pdf_content("Date:", pdf_lang)
-    factory_label = translate_pdf_content("Factory:", pdf_lang)
-    style_label = translate_pdf_content("Style:", pdf_lang)
-    description_label = translate_pdf_content("Description:", pdf_lang)
-    sample_type_label = translate_pdf_content("Sample Type:", pdf_lang)
-    testers_label = translate_pdf_content("Testers:", pdf_lang)
-    fit_sizes_label = translate_pdf_content("Fit Sizes:", pdf_lang)
+    # Translate labels for PDF
+    po_label = "PO编号:" if pdf_lang == "zh" else "PO Number:"
+    color_label = "颜色:" if pdf_lang == "zh" else "Color:"
+    brand_label = "品牌:" if pdf_lang == "zh" else "Brand:"
+    date_label = "日期:" if pdf_lang == "zh" else "Date:"
+    factory_label = "工厂:" if pdf_lang == "zh" else "Factory:"
+    style_label = "款式:" if pdf_lang == "zh" else "Style:"
+    description_label = "描述:" if pdf_lang == "zh" else "Description:"
+    sample_type_label = "样品类型:" if pdf_lang == "zh" else "Sample Type:"
+    testers_label = "测试人员:" if pdf_lang == "zh" else "Testers:"
+    fit_sizes_label = "试穿尺码:" if pdf_lang == "zh" else "Fit Sizes:"
     
     basic_data = [
         [create_paragraph(po_label, bold=True), 
@@ -872,11 +944,11 @@ def generate_pdf():
         section_a_title = "2. BEFORE TRYING ON (TOUCH & FEEL)"
     elements.append(Paragraph(section_a_title, heading_style))
     
-    aspect_label = translate_pdf_content("Aspect", pdf_lang)
-    rating_label = translate_pdf_content("Rating", pdf_lang)
-    upper_label = translate_pdf_content("Upper Material Feel", pdf_lang)
-    lining_label = translate_pdf_content("Lining Material Feel", pdf_lang)
-    sock_label = translate_pdf_content("Sock Cushion Feel", pdf_lang)
+    aspect_label = "方面" if pdf_lang == "zh" else "Aspect"
+    rating_label = "评级" if pdf_lang == "zh" else "Rating"
+    upper_label = "鞋面材料感觉" if pdf_lang == "zh" else "Upper Material Feel"
+    lining_label = "内里材料感觉" if pdf_lang == "zh" else "Lining Material Feel"
+    sock_label = "袜垫感觉" if pdf_lang == "zh" else "Sock Cushion Feel"
     
     feel_data = [
         [create_paragraph(aspect_label, bold=True), 
@@ -909,15 +981,15 @@ def generate_pdf():
         section_b_title = "3. FIT BEFORE WALKING (STANDING)"
     elements.append(Paragraph(section_b_title, heading_style))
     
-    question_label = translate_pdf_content("Question", pdf_lang)
-    response_label = translate_pdf_content("Response", pdf_lang)
+    question_label = "问题" if pdf_lang == "zh" else "Question"
+    response_label = "回答" if pdf_lang == "zh" else "Response"
     
-    toe_length_q = translate_pdf_content("Is toe length okay?", pdf_lang)
-    ball_position_q = translate_pdf_content("Ball of foot at correct place?", pdf_lang)
-    shoe_flex_q = translate_pdf_content("Shoe flex at proper place?", pdf_lang)
-    arch_support_q = translate_pdf_content("Feel arch support?", pdf_lang)
-    top_gapping_q = translate_pdf_content("Shoe gapping at top line?", pdf_lang)
-    fit_properly_q = translate_pdf_content("Shoes fit properly?", pdf_lang)
+    toe_length_q = "脚趾长度合适吗？" if pdf_lang == "zh" else "Is toe length okay?"
+    ball_position_q = "脚掌位置正确吗？" if pdf_lang == "zh" else "Ball of foot at correct place?"
+    shoe_flex_q = "鞋子弯曲位置正确吗？" if pdf_lang == "zh" else "Shoe flex at proper place?"
+    arch_support_q = "感觉足弓支撑吗？" if pdf_lang == "zh" else "Feel arch support?"
+    top_gapping_q = "鞋口处有空隙吗？" if pdf_lang == "zh" else "Shoe gapping at top line?"
+    fit_properly_q = "鞋子合脚吗？" if pdf_lang == "zh" else "Shoes fit properly?"
     
     fit_data = [
         [create_paragraph(question_label, bold=True), 
@@ -956,14 +1028,14 @@ def generate_pdf():
         section_c_title = "4. AFTER 8-15 MINUTES WALKING"
     elements.append(Paragraph(section_c_title, heading_style))
     
-    feel_fit_q = translate_pdf_content("Can feel shoe fit?", pdf_lang)
-    interior_lining_q = translate_pdf_content("Interior lining feels good?", pdf_lang)
-    feel_stability_q = translate_pdf_content("Can feel stability?", pdf_lang)
-    slipping_q = translate_pdf_content("Shoe slipping?", pdf_lang)
-    sole_flexibility_q = translate_pdf_content("Sole flexibility good?", pdf_lang)
-    toe_room_q = translate_pdf_content("Enough toe room?", pdf_lang)
-    rubbing_q = translate_pdf_content("Any rubbing?", pdf_lang)
-    red_marks_q = translate_pdf_content("Red marks after removing socks?", pdf_lang)
+    feel_fit_q = "能感觉到鞋子合脚吗？" if pdf_lang == "zh" else "Can feel shoe fit?"
+    interior_lining_q = "内里感觉好吗？" if pdf_lang == "zh" else "Interior lining feels good?"
+    feel_stability_q = "能感觉到稳定性吗？" if pdf_lang == "zh" else "Can feel stability?"
+    slipping_q = "鞋子滑脚吗？" if pdf_lang == "zh" else "Shoe slipping?"
+    sole_flexibility_q = "鞋底柔韧性好吗？" if pdf_lang == "zh" else "Sole flexibility good?"
+    toe_room_q = "脚趾区域有足够空间吗？" if pdf_lang == "zh" else "Enough toe room?"
+    rubbing_q = "有任何摩擦吗？" if pdf_lang == "zh" else "Any rubbing?"
+    red_marks_q = "脱袜后有红色印记吗？" if pdf_lang == "zh" else "Red marks after removing socks?"
     
     walk_data = [
         [create_paragraph(question_label, bold=True), 
@@ -1006,24 +1078,19 @@ def generate_pdf():
         section_d_title = "5. EXTENDED WEAR TESTING"
     elements.append(Paragraph(section_d_title, heading_style))
     
-    translated_time_periods = [translate_pdf_content(period, pdf_lang) for period in time_periods]
-    
-    for i, period in enumerate(time_periods):
-        translated_period = translated_time_periods[i]
+    for period in translated_extended_data.keys():
         period_data = [
             [create_paragraph(question_label, bold=True), 
              create_paragraph(response_label, bold=True)]
         ]
         
-        for q in questions_d:
-            translated_q = translate_pdf_content(q, pdf_lang)
-            response = translated_extended_data[period][translated_q]
+        for q, response in translated_extended_data[period].items():
             period_data.append([
-                create_paragraph(translated_q), 
+                create_paragraph(q), 
                 Paragraph(f'<font color="{get_yes_no_color(response)}">{response}</font>', chinese_normal_style)
             ])
         
-        elements.append(Paragraph(translated_period, styles['Heading3']))
+        elements.append(Paragraph(period, styles['Heading3']))
         period_table = Table(period_data, colWidths=[4*inch, 2*inch])
         period_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ecc71')),
@@ -1046,10 +1113,10 @@ def generate_pdf():
         section_e_title = "6. COMFORT & APPEARANCE INDEX"
     elements.append(Paragraph(section_e_title, heading_style))
     
-    day_label = translate_pdf_content("Day", pdf_lang)
-    comfort_label = translate_pdf_content("Comfort (1-5)", pdf_lang)
-    appearance_label = translate_pdf_content("Appearance (1-5)", pdf_lang)
-    issues_label = translate_pdf_content("Issues Noticed", pdf_lang)
+    day_label = "天数" if pdf_lang == "zh" else "Day"
+    comfort_label = "舒适度 (1-5)" if pdf_lang == "zh" else "Comfort (1-5)"
+    appearance_label = "外观 (1-5)" if pdf_lang == "zh" else "Appearance (1-5)"
+    issues_label = "发现的问题" if pdf_lang == "zh" else "Issues Noticed"
     
     index_data = [
         [
@@ -1094,10 +1161,10 @@ def generate_pdf():
         final_title = "7. FINAL ASSESSMENT"
     elements.append(Paragraph(f"{final_title}", heading_style))
     
-    prepared_by_label = translate_pdf_content("Prepared By:", pdf_lang)
-    date_label = translate_pdf_content("Date:", pdf_lang)
-    approved_by_label = translate_pdf_content("Approved By:", pdf_lang)
-    overall_result_label = translate_pdf_content("Overall Result:", pdf_lang)
+    prepared_by_label = "准备人:" if pdf_lang == "zh" else "Prepared By:"
+    date_label = "日期:" if pdf_lang == "zh" else "Date:"
+    approved_by_label = "批准人:" if pdf_lang == "zh" else "Approved By:"
+    overall_result_label = "总体结果:" if pdf_lang == "zh" else "Overall Result:"
     
     final_data = [
         [create_paragraph(prepared_by_label, bold=True), 
@@ -1125,8 +1192,8 @@ def generate_pdf():
     
     # Signature lines
     elements.append(Spacer(1, 40))
-    prepared_by_sig = translate_pdf_content("Prepared By Signature", pdf_lang)
-    approved_by_sig = translate_pdf_content("Approved By Signature", pdf_lang)
+    prepared_by_sig = "准备人签名" if pdf_lang == "zh" else "Prepared By Signature"
+    approved_by_sig = "批准人签名" if pdf_lang == "zh" else "Approved By Signature"
     
     sig_data = [
         ['', ''],
@@ -1157,15 +1224,19 @@ def generate_pdf():
     buffer.seek(0)
     return buffer
 
-# Helper function to display text input with translation
+# Enhanced helper function to display text input with proper translation
 def translated_text_input(label, key, placeholder="", type="text"):
-    """Create a text input that displays translated content based on UI language"""
+    """Create a text input that properly handles translation between languages"""
     # Get current value from session state
     current_value = st.session_state.form_data[key]
     
-    # If UI language is Mandarin, translate the displayed value
-    if st.session_state.ui_language == "zh" and openai_client and current_value:
-        displayed_value = translate_text(current_value, "zh")
+    # Store original English text when first entered
+    if current_value and key not in st.session_state.original_english_texts:
+        store_original_text(key, current_value)
+    
+    # Display translated value if UI is in Mandarin
+    if st.session_state.ui_language == "zh" and openai_client:
+        displayed_value = get_translated_for_display(key, current_value)
     else:
         displayed_value = current_value
     
@@ -1188,45 +1259,59 @@ def translated_text_input(label, key, placeholder="", type="text"):
     
     # Update session state if value changed
     if new_value != displayed_value:
-        # If user entered text in Mandarin, translate it back to English for storage
         if st.session_state.ui_language == "zh" and openai_client and new_value:
-            # Check if this looks like Chinese text (not just numbers/codes)
-            import re
-            chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
-            if chinese_pattern.search(new_value):
-                # Translate back to English for storage
-                english_value = translate_text(new_value, "en")
-                st.session_state.form_data[key] = english_value
-            else:
-                st.session_state.form_data[key] = new_value
+            # User entered text in Mandarin UI - check if it's different from displayed
+            if new_value != displayed_value:
+                # This could be new text or edited text
+                # For simplicity, store as English (translate if possible)
+                try:
+                    # Check if it looks like Chinese text
+                    chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
+                    if chinese_pattern.search(new_value):
+                        # Translate back to English for storage
+                        english_value = translate_text(new_value, "en")
+                        st.session_state.form_data[key] = english_value
+                        store_original_text(key, english_value)
+                    else:
+                        # Not Chinese, store as-is
+                        st.session_state.form_data[key] = new_value
+                        store_original_text(key, new_value)
+                except:
+                    st.session_state.form_data[key] = new_value
+                    store_original_text(key, new_value)
         else:
+            # English UI or no OpenAI - store as-is
             st.session_state.form_data[key] = new_value
+            if new_value:
+                store_original_text(key, new_value)
     
     return st.session_state.form_data[key]
 
-# Helper function for radio buttons with translation
+# Enhanced helper function for radio buttons
 def translated_radio(label, key, options, index=0, horizontal=True):
-    """Create a radio button with translated options based on UI language"""
+    """Create a radio button with proper translation handling"""
     # Get current value from session state
     current_value = st.session_state.form_data[key]
     
-    # Translate options if UI language is Mandarin
+    # Store original if not already stored
+    if current_value and f"{key}_options" not in st.session_state.original_english_texts:
+        st.session_state.original_english_texts[f"{key}_options"] = options
+    
+    # Translate options if UI is in Mandarin
     if st.session_state.ui_language == "zh" and openai_client:
         translated_options = [translate_text(opt, "zh") for opt in options]
-        # Translate current value for display
-        if current_value:
-            displayed_value = translate_text(current_value, "zh")
-            # Find index of displayed value in translated options
-            try:
-                index = translated_options.index(displayed_value)
-            except ValueError:
-                index = 0
+        # Find current value in translated options
+        try:
+            current_translated = translate_text(current_value, "zh")
+            if current_translated in translated_options:
+                index = translated_options.index(current_translated)
+        except:
+            index = 0
     else:
         translated_options = options
-        displayed_value = current_value
         try:
-            index = options.index(displayed_value) if displayed_value in options else 0
-        except ValueError:
+            index = options.index(current_value) if current_value in options else 0
+        except:
             index = 0
     
     # Create radio button
@@ -1239,25 +1324,33 @@ def translated_radio(label, key, options, index=0, horizontal=True):
     )
     
     # Update session state
-    if selected != displayed_value:
-        # If selection is in Mandarin, translate back to English for storage
+    if selected != (translate_text(current_value, "zh") if st.session_state.ui_language == "zh" and openai_client else current_value):
         if st.session_state.ui_language == "zh" and openai_client:
-            # Find the corresponding English option
-            english_index = translated_options.index(selected)
-            english_value = options[english_index]
-            st.session_state.form_data[key] = english_value
+            # Find corresponding English option
+            try:
+                idx = translated_options.index(selected)
+                english_value = options[idx]
+                st.session_state.form_data[key] = english_value
+            except:
+                # Translate back to English
+                english_value = translate_text(selected, "en")
+                st.session_state.form_data[key] = english_value
         else:
             st.session_state.form_data[key] = selected
     
     return st.session_state.form_data[key]
 
-# Helper function for multiselect with translation
+# Enhanced helper function for multiselect
 def translated_multiselect(label, key, options, default=None):
-    """Create a multiselect with translated options based on UI language"""
+    """Create a multiselect with proper translation handling"""
     # Get current values from session state
     current_values = st.session_state.form_data[key]
     
-    # Translate options if UI language is Mandarin
+    # Store original options if not already stored
+    if f"{key}_options" not in st.session_state.original_english_texts:
+        st.session_state.original_english_texts[f"{key}_options"] = options
+    
+    # Translate options if UI is in Mandarin
     if st.session_state.ui_language == "zh" and openai_client:
         translated_options = [translate_text(opt, "zh") for opt in options]
         # Translate current values for display
@@ -1267,7 +1360,7 @@ def translated_multiselect(label, key, options, default=None):
             displayed_values = []
     else:
         translated_options = options
-        displayed_values = current_values
+        displayed_values = current_values if current_values else []
     
     # Create multiselect
     selected = st.multiselect(
@@ -1279,16 +1372,14 @@ def translated_multiselect(label, key, options, default=None):
     
     # Update session state
     if selected != displayed_values:
-        # If selections are in Mandarin, translate back to English for storage
         if st.session_state.ui_language == "zh" and openai_client:
             english_values = []
             for sel in selected:
-                # Find the corresponding English option
                 try:
-                    index = translated_options.index(sel)
-                    english_values.append(options[index])
-                except ValueError:
-                    # If not found in options, translate it back
+                    idx = translated_options.index(sel)
+                    english_values.append(options[idx])
+                except:
+                    # Translate back to English
                     english_values.append(translate_text(sel, "en"))
             st.session_state.form_data[key] = english_values
         else:
@@ -1296,13 +1387,11 @@ def translated_multiselect(label, key, options, default=None):
     
     return st.session_state.form_data[key]
 
-# Helper function for slider with translation
+# Helper function for slider
 def translated_slider(label, key, min_value, max_value, default_value):
     """Create a slider with translated label"""
-    # Get current value from session state
     current_value = st.session_state.form_data.get(key, default_value)
     
-    # Create slider
     value = st.slider(
         get_text(label),
         min_value=min_value,
@@ -1311,7 +1400,6 @@ def translated_slider(label, key, min_value, max_value, default_value):
         key=f"slider_{key}"
     )
     
-    # Update session state
     st.session_state.form_data[key] = value
     return value
 
@@ -1331,6 +1419,8 @@ with st.sidebar:
     new_ui_lang = "en" if ui_language == "English" else "zh"
     if new_ui_lang != st.session_state.ui_language:
         st.session_state.ui_language = new_ui_lang
+        # Clear translation cache to force refresh
+        st.session_state.translations_cache = {}
         st.rerun()
     
     pdf_language = st.selectbox(
@@ -1538,22 +1628,25 @@ with tab3:
     for period in time_periods:
         with st.expander(f"{ICONS['time']} {period} Assessment"):
             for q in questions_d:
-                # Create a unique key for each question in each period
+                # Create a unique key for each question
                 key = f"extended_{period}_{q}"
-                # Initialize if not exists
-                if key not in st.session_state.form_data['extended_data']:
-                    st.session_state.form_data['extended_data'][key] = "No"
                 
-                # Display the question (translated if needed)
+                # Get current value
+                current_value = st.session_state.form_data['extended_data'].get(period, {}).get(q, "No")
+                
+                # Store original if not stored
+                if current_value and key not in st.session_state.original_english_texts:
+                    st.session_state.original_english_texts[key] = current_value
+                
+                # Display translated question if needed
                 if st.session_state.ui_language == "zh" and openai_client:
                     display_q = translate_text(q, "zh")
                 else:
                     display_q = q
                 
-                # Get current value
-                current_value = st.session_state.form_data['extended_data'][key]
-                if st.session_state.ui_language == "zh" and openai_client and current_value:
-                    display_value = translate_text(current_value, "zh")
+                # Display translated value if needed
+                if st.session_state.ui_language == "zh" and openai_client:
+                    display_value = get_translated_for_display(key, current_value)
                 else:
                     display_value = current_value
                 
@@ -1576,11 +1669,24 @@ with tab3:
                 if selected != display_value:
                     if st.session_state.ui_language == "zh" and openai_client:
                         # Translate back to English
-                        english_index = display_options.index(selected)
-                        english_value = options[english_index]
-                        st.session_state.form_data['extended_data'][key] = english_value
+                        try:
+                            idx = display_options.index(selected)
+                            english_value = options[idx]
+                            if period not in st.session_state.form_data['extended_data']:
+                                st.session_state.form_data['extended_data'][period] = {}
+                            st.session_state.form_data['extended_data'][period][q] = english_value
+                            store_original_text(key, english_value)
+                        except:
+                            english_value = translate_text(selected, "en")
+                            if period not in st.session_state.form_data['extended_data']:
+                                st.session_state.form_data['extended_data'][period] = {}
+                            st.session_state.form_data['extended_data'][period][q] = english_value
+                            store_original_text(key, english_value)
                     else:
-                        st.session_state.form_data['extended_data'][key] = selected
+                        if period not in st.session_state.form_data['extended_data']:
+                            st.session_state.form_data['extended_data'][period] = {}
+                        st.session_state.form_data['extended_data'][period][q] = selected
+                        store_original_text(key, selected)
     
     # Section E: Comfort & Appearance Index
     st.markdown(f"""
@@ -1608,12 +1714,15 @@ with tab3:
             with col3:
                 # Issues text area
                 issues_key = f"issues_{day}"
-                # Get current value
                 current_issues = st.session_state.form_data['issues'].get(day, "")
                 
+                # Store original if not stored
+                if current_issues and issues_key not in st.session_state.original_english_texts:
+                    st.session_state.original_english_texts[issues_key] = current_issues
+                
                 # Display translated if needed
-                if st.session_state.ui_language == "zh" and openai_client and current_issues:
-                    display_issues = translate_text(current_issues, "zh")
+                if st.session_state.ui_language == "zh" and openai_client:
+                    display_issues = get_translated_for_display(issues_key, current_issues)
                 else:
                     display_issues = current_issues
                 
@@ -1627,17 +1736,20 @@ with tab3:
                 # Update session state
                 if new_issues != display_issues:
                     if st.session_state.ui_language == "zh" and openai_client and new_issues:
-                        # Check if this looks like Chinese text
-                        import re
+                        # Check if it looks like Chinese text
                         chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
                         if chinese_pattern.search(new_issues):
                             # Translate back to English for storage
                             english_issues = translate_text(new_issues, "en")
                             st.session_state.form_data['issues'][day] = english_issues
+                            store_original_text(issues_key, english_issues)
                         else:
                             st.session_state.form_data['issues'][day] = new_issues
+                            store_original_text(issues_key, new_issues)
                     else:
                         st.session_state.form_data['issues'][day] = new_issues
+                        if new_issues:
+                            store_original_text(issues_key, new_issues)
     
     # Final Assessment
     st.markdown(f"""
@@ -1671,51 +1783,6 @@ with col2:
         else:
             with st.spinner(f"{ICONS['time']} {get_text('creating_pdf')}"):
                 try:
-                    # Prepare data for PDF generation
-                    po_number = st.session_state.form_data['po_number']
-                    factory = st.session_state.form_data['factory']
-                    color = st.session_state.form_data['color']
-                    style = st.session_state.form_data['style']
-                    brand = st.session_state.form_data['brand']
-                    sample_type = st.session_state.form_data['sample_type']
-                    description = st.session_state.form_data['description']
-                    testers = st.session_state.form_data['testers']
-                    fit_sizes = st.session_state.form_data['fit_sizes']
-                    upper_feel = st.session_state.form_data['upper_feel']
-                    lining_feel = st.session_state.form_data['lining_feel']
-                    sock_feel = st.session_state.form_data['sock_feel']
-                    toe_length = st.session_state.form_data['toe_length']
-                    ball_position = st.session_state.form_data['ball_position']
-                    shoe_flex = st.session_state.form_data['shoe_flex']
-                    arch_support = st.session_state.form_data['arch_support']
-                    top_gapping = st.session_state.form_data['top_gapping']
-                    fit_properly = st.session_state.form_data['fit_properly']
-                    feel_fit = st.session_state.form_data['feel_fit']
-                    interior_lining = st.session_state.form_data['interior_lining']
-                    feel_stability = st.session_state.form_data['feel_stability']
-                    slipping = st.session_state.form_data['slipping']
-                    sole_flexibility = st.session_state.form_data['sole_flexibility']
-                    toe_room = st.session_state.form_data['toe_room']
-                    rubbing = st.session_state.form_data['rubbing']
-                    red_marks = st.session_state.form_data['red_marks']
-                    prepared_by = st.session_state.form_data['prepared_by']
-                    prep_date = st.session_state.form_data['prep_date']
-                    approved_by = st.session_state.form_data['approved_by']
-                    overall_result = st.session_state.form_data['overall_result']
-                    
-                    # Prepare extended_data in the format expected by generate_pdf
-                    extended_data = {}
-                    for period in time_periods:
-                        extended_data[period] = {}
-                        for q in questions_d:
-                            key = f"extended_{period}_{q}"
-                            extended_data[period][q] = st.session_state.form_data['extended_data'].get(key, "No")
-                    
-                    # Prepare comfort scores
-                    comfort_scores = st.session_state.form_data['comfort_scores']
-                    appearance_scores = st.session_state.form_data['appearance_scores']
-                    issues = st.session_state.form_data['issues']
-                    
                     pdf_buffer = generate_pdf()
                     st.success(f"{ICONS['success']} {get_text('generate_success')}")
                     
@@ -1731,6 +1798,7 @@ with col2:
                             st.metric(get_text("generated"), current_time.strftime('%H:%M:%S'))
                     
                     # Download button
+                    po_number = st.session_state.form_data['po_number']
                     filename = f"Wear_Test_Report_{po_number}_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
                     st.download_button(
                         label=f"{ICONS['download']} {get_text('download_pdf')}",
