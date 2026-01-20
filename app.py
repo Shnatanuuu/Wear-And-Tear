@@ -656,13 +656,13 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         
         self.canv.restoreState()
 
-
- def generate_pdf():
+def generate_pdf():
+    """Generate PDF report with all form data"""
     buffer = io.BytesIO()
     
     # Get location info
     selected_city = st.session_state.selected_city
-    chinese_city = CHINESE_CITIES[selected_city]
+    chinese_city = CHINESE_CITIES.get(selected_city, selected_city)
     pdf_lang = st.session_state.pdf_language
     
     # Register Chinese font if needed
@@ -823,44 +823,45 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     form_data = st.session_state.form_data
     
     # Translate ALL form data for PDF based on selected language
-    translated_po_number = translate_form_data_for_pdf(form_data['po_number'], pdf_lang)
-    translated_factory = translate_form_data_for_pdf(form_data['factory'], pdf_lang)
-    translated_color = translate_form_data_for_pdf(form_data['color'], pdf_lang)
-    translated_style = translate_form_data_for_pdf(form_data['style'], pdf_lang)
-    translated_brand = translate_form_data_for_pdf(form_data['brand'], pdf_lang)
-    translated_description = translate_form_data_for_pdf(form_data['description'], pdf_lang)
-    translated_sample_type = translate_form_data_for_pdf(form_data['sample_type'], pdf_lang)
-    translated_testers = translate_form_data_for_pdf(form_data['testers'], pdf_lang)
-    translated_fit_sizes = translate_form_data_for_pdf(form_data['fit_sizes'], pdf_lang)
-    translated_upper_feel = translate_form_data_for_pdf(form_data['upper_feel'], pdf_lang)
-    translated_lining_feel = translate_form_data_for_pdf(form_data['lining_feel'], pdf_lang)
-    translated_sock_feel = translate_form_data_for_pdf(form_data['sock_feel'], pdf_lang)
-    translated_toe_length = translate_form_data_for_pdf(form_data['toe_length'], pdf_lang)
-    translated_ball_position = translate_form_data_for_pdf(form_data['ball_position'], pdf_lang)
-    translated_shoe_flex = translate_form_data_for_pdf(form_data['shoe_flex'], pdf_lang)
-    translated_arch_support = translate_form_data_for_pdf(form_data['arch_support'], pdf_lang)
-    translated_top_gapping = translate_form_data_for_pdf(form_data['top_gapping'], pdf_lang)
-    translated_fit_properly = translate_form_data_for_pdf(form_data['fit_properly'], pdf_lang)
-    translated_feel_fit = translate_form_data_for_pdf(form_data['feel_fit'], pdf_lang)
-    translated_interior_lining = translate_form_data_for_pdf(form_data['interior_lining'], pdf_lang)
-    translated_feel_stability = translate_form_data_for_pdf(form_data['feel_stability'], pdf_lang)
-    translated_slipping = translate_form_data_for_pdf(form_data['slipping'], pdf_lang)
-    translated_sole_flexibility = translate_form_data_for_pdf(form_data['sole_flexibility'], pdf_lang)
-    translated_toe_room = translate_form_data_for_pdf(form_data['toe_room'], pdf_lang)
-    translated_rubbing = translate_form_data_for_pdf(form_data['rubbing'], pdf_lang)
-    translated_red_marks = translate_form_data_for_pdf(form_data['red_marks'], pdf_lang)
-    translated_prepared_by = translate_form_data_for_pdf(form_data['prepared_by'], pdf_lang)
-    translated_approved_by = translate_form_data_for_pdf(form_data['approved_by'], pdf_lang)
-    translated_overall_result = translate_form_data_for_pdf(form_data['overall_result'], pdf_lang)
+    translated_po_number = translate_form_data_for_pdf(form_data.get('po_number', ''), pdf_lang)
+    translated_factory = translate_form_data_for_pdf(form_data.get('factory', ''), pdf_lang)
+    translated_color = translate_form_data_for_pdf(form_data.get('color', ''), pdf_lang)
+    translated_style = translate_form_data_for_pdf(form_data.get('style', ''), pdf_lang)
+    translated_brand = translate_form_data_for_pdf(form_data.get('brand', ''), pdf_lang)
+    translated_description = translate_form_data_for_pdf(form_data.get('description', ''), pdf_lang)
+    translated_sample_type = translate_form_data_for_pdf(form_data.get('sample_type', 'Prototype'), pdf_lang)
+    translated_testers = translate_form_data_for_pdf(form_data.get('testers', ['Tester A']), pdf_lang)
+    translated_fit_sizes = translate_form_data_for_pdf(form_data.get('fit_sizes', ['6/8/39']), pdf_lang)
+    translated_upper_feel = translate_form_data_for_pdf(form_data.get('upper_feel', 'Comfortable'), pdf_lang)
+    translated_lining_feel = translate_form_data_for_pdf(form_data.get('lining_feel', 'Comfortable'), pdf_lang)
+    translated_sock_feel = translate_form_data_for_pdf(form_data.get('sock_feel', 'Comfortable'), pdf_lang)
+    translated_toe_length = translate_form_data_for_pdf(form_data.get('toe_length', 'Yes'), pdf_lang)
+    translated_ball_position = translate_form_data_for_pdf(form_data.get('ball_position', 'Yes'), pdf_lang)
+    translated_shoe_flex = translate_form_data_for_pdf(form_data.get('shoe_flex', 'Yes'), pdf_lang)
+    translated_arch_support = translate_form_data_for_pdf(form_data.get('arch_support', 'Yes'), pdf_lang)
+    translated_top_gapping = translate_form_data_for_pdf(form_data.get('top_gapping', 'No'), pdf_lang)
+    translated_fit_properly = translate_form_data_for_pdf(form_data.get('fit_properly', 'Yes'), pdf_lang)
+    translated_feel_fit = translate_form_data_for_pdf(form_data.get('feel_fit', 'Yes'), pdf_lang)
+    translated_interior_lining = translate_form_data_for_pdf(form_data.get('interior_lining', 'Yes'), pdf_lang)
+    translated_feel_stability = translate_form_data_for_pdf(form_data.get('feel_stability', 'Yes'), pdf_lang)
+    translated_slipping = translate_form_data_for_pdf(form_data.get('slipping', 'No'), pdf_lang)
+    translated_sole_flexibility = translate_form_data_for_pdf(form_data.get('sole_flexibility', 'Yes'), pdf_lang)
+    translated_toe_room = translate_form_data_for_pdf(form_data.get('toe_room', 'Yes'), pdf_lang)
+    translated_rubbing = translate_form_data_for_pdf(form_data.get('rubbing', 'No'), pdf_lang)
+    translated_red_marks = translate_form_data_for_pdf(form_data.get('red_marks', 'No'), pdf_lang)
+    translated_prepared_by = translate_form_data_for_pdf(form_data.get('prepared_by', ''), pdf_lang)
+    translated_approved_by = translate_form_data_for_pdf(form_data.get('approved_by', ''), pdf_lang)
+    translated_overall_result = translate_form_data_for_pdf(form_data.get('overall_result', ''), pdf_lang)
     
-    # FIXED: Translate extended wear data - with proper error handling
+    # Translate extended wear data - with proper error handling
     translated_extended_data = {}
     for period in time_periods:
         translated_period = translate_form_data_for_pdf(period, pdf_lang)
         translated_extended_data[translated_period] = {}
         
         # Check if period exists in form data
-        if period not in form_data.get('extended_data', {}):
+        period_data = form_data.get('extended_data', {}).get(period, {})
+        if not period_data:
             # Initialize with default "No" values
             for q in questions_d:
                 translated_q = translate_form_data_for_pdf(q, pdf_lang)
@@ -870,7 +871,7 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
             for q in questions_d:
                 translated_q = translate_form_data_for_pdf(q, pdf_lang)
                 # Get the response - handle nested structure
-                response = form_data['extended_data'].get(period, {}).get(q, "No")
+                response = period_data.get(q, "No")
                 translated_response = translate_form_data_for_pdf(response, pdf_lang)
                 translated_extended_data[translated_period][translated_q] = translated_response
     
@@ -882,9 +883,9 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     
     for i, day in enumerate(days_to_track):
         translated_day = translated_days_to_track[i]
-        translated_comfort_scores[translated_day] = form_data['comfort_scores'].get(day, 3)
-        translated_appearance_scores[translated_day] = form_data['appearance_scores'].get(day, 3)
-        translated_issues[translated_day] = translate_form_data_for_pdf(form_data['issues'].get(day, ""), pdf_lang)
+        translated_comfort_scores[translated_day] = form_data.get('comfort_scores', {}).get(day, 3)
+        translated_appearance_scores[translated_day] = form_data.get('appearance_scores', {}).get(day, 3)
+        translated_issues[translated_day] = translate_form_data_for_pdf(form_data.get('issues', {}).get(day, ""), pdf_lang)
     
     # Basic Info Table
     if pdf_lang == "zh":
@@ -905,27 +906,38 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     testers_label = "测试人员:" if pdf_lang == "zh" else "Testers:"
     fit_sizes_label = "试穿尺码:" if pdf_lang == "zh" else "Fit Sizes:"
     
+    # Format dates safely
+    prep_date = form_data.get('prep_date', datetime.now().date())
+    if isinstance(prep_date, datetime):
+        prep_date_str = prep_date.strftime('%Y-%m-%d')
+    else:
+        prep_date_str = str(prep_date)
+    
+    # Format lists safely
+    testers_str = ", ".join(translated_testers) if isinstance(translated_testers, list) else str(translated_testers)
+    fit_sizes_str = ", ".join(translated_fit_sizes) if isinstance(translated_fit_sizes, list) else str(translated_fit_sizes)
+    
     basic_data = [
         [create_paragraph(po_label, bold=True), 
-         create_paragraph(translated_po_number), 
+         create_paragraph(str(translated_po_number)), 
          create_paragraph(color_label, bold=True), 
-         create_paragraph(translated_color)],
+         create_paragraph(str(translated_color))],
         [create_paragraph(brand_label, bold=True), 
-         create_paragraph(translated_brand), 
+         create_paragraph(str(translated_brand)), 
          create_paragraph(date_label, bold=True), 
-         create_paragraph(form_data['prep_date'].strftime('%Y-%m-%d'))],
+         create_paragraph(prep_date_str)],
         [create_paragraph(factory_label, bold=True), 
-         create_paragraph(translated_factory), 
+         create_paragraph(str(translated_factory)), 
          create_paragraph(style_label, bold=True), 
-         create_paragraph(translated_style)],
+         create_paragraph(str(translated_style))],
         [create_paragraph(description_label, bold=True), 
-         create_paragraph(translated_description), 
+         create_paragraph(str(translated_description)), 
          create_paragraph(sample_type_label, bold=True), 
-         create_paragraph(translated_sample_type)],
+         create_paragraph(str(translated_sample_type))],
         [create_paragraph(testers_label, bold=True), 
-         create_paragraph(", ".join(translated_testers) if isinstance(translated_testers, list) else translated_testers), 
+         create_paragraph(testers_str), 
          create_paragraph(fit_sizes_label, bold=True), 
-         create_paragraph(", ".join(translated_fit_sizes) if isinstance(translated_fit_sizes, list) else translated_fit_sizes)]
+         create_paragraph(fit_sizes_str)]
     ]
     
     basic_table = Table(basic_data, colWidths=[1.3*inch, 2.3*inch, 1.3*inch, 2.3*inch])
@@ -964,11 +976,11 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         [create_paragraph(aspect_label, bold=True), 
          create_paragraph(rating_label, bold=True)],
         [create_paragraph(upper_label), 
-         Paragraph(f'<font color="{get_color_for_rating(form_data["upper_feel"])}">{translated_upper_feel}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_color_for_rating(form_data.get("upper_feel", "Comfortable"))}">{translated_upper_feel}</font>', chinese_normal_style)],
         [create_paragraph(lining_label), 
-         Paragraph(f'<font color="{get_color_for_rating(form_data["lining_feel"])}">{translated_lining_feel}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_color_for_rating(form_data.get("lining_feel", "Comfortable"))}">{translated_lining_feel}</font>', chinese_normal_style)],
         [create_paragraph(sock_label), 
-         Paragraph(f'<font color="{get_color_for_rating(form_data["sock_feel"])}">{translated_sock_feel}</font>', chinese_normal_style)]
+         Paragraph(f'<font color="{get_color_for_rating(form_data.get("sock_feel", "Comfortable"))}">{translated_sock_feel}</font>', chinese_normal_style)]
     ]
     
     feel_table = Table(feel_data, colWidths=[3.5*inch, 2.5*inch])
@@ -1005,17 +1017,17 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         [create_paragraph(question_label, bold=True), 
          create_paragraph(response_label, bold=True)],
         [create_paragraph(toe_length_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["toe_length"])}">{translated_toe_length}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("toe_length", "Yes"))}">{translated_toe_length}</font>', chinese_normal_style)],
         [create_paragraph(ball_position_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["ball_position"])}">{translated_ball_position}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("ball_position", "Yes"))}">{translated_ball_position}</font>', chinese_normal_style)],
         [create_paragraph(shoe_flex_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["shoe_flex"])}">{translated_shoe_flex}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("shoe_flex", "Yes"))}">{translated_shoe_flex}</font>', chinese_normal_style)],
         [create_paragraph(arch_support_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["arch_support"])}">{translated_arch_support}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("arch_support", "Yes"))}">{translated_arch_support}</font>', chinese_normal_style)],
         [create_paragraph(top_gapping_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["top_gapping"])}">{translated_top_gapping}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("top_gapping", "No"))}">{translated_top_gapping}</font>', chinese_normal_style)],
         [create_paragraph(fit_properly_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["fit_properly"])}">{translated_fit_properly}</font>', chinese_normal_style)]
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("fit_properly", "Yes"))}">{translated_fit_properly}</font>', chinese_normal_style)]
     ]
     
     fit_table = Table(fit_data, colWidths=[4*inch, 2*inch])
@@ -1051,21 +1063,21 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
         [create_paragraph(question_label, bold=True), 
          create_paragraph(response_label, bold=True)],
         [create_paragraph(feel_fit_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["feel_fit"])}">{translated_feel_fit}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("feel_fit", "Yes"))}">{translated_feel_fit}</font>', chinese_normal_style)],
         [create_paragraph(interior_lining_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["interior_lining"])}">{translated_interior_lining}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("interior_lining", "Yes"))}">{translated_interior_lining}</font>', chinese_normal_style)],
         [create_paragraph(feel_stability_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["feel_stability"])}">{translated_feel_stability}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("feel_stability", "Yes"))}">{translated_feel_stability}</font>', chinese_normal_style)],
         [create_paragraph(slipping_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["slipping"])}">{translated_slipping}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("slipping", "No"))}">{translated_slipping}</font>', chinese_normal_style)],
         [create_paragraph(sole_flexibility_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["sole_flexibility"])}">{translated_sole_flexibility}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("sole_flexibility", "Yes"))}">{translated_sole_flexibility}</font>', chinese_normal_style)],
         [create_paragraph(toe_room_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["toe_room"])}">{translated_toe_room}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("toe_room", "Yes"))}">{translated_toe_room}</font>', chinese_normal_style)],
         [create_paragraph(rubbing_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["rubbing"])}">{translated_rubbing}</font>', chinese_normal_style)],
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("rubbing", "No"))}">{translated_rubbing}</font>', chinese_normal_style)],
         [create_paragraph(red_marks_q), 
-         Paragraph(f'<font color="{get_yes_no_color(form_data["red_marks"])}">{translated_red_marks}</font>', chinese_normal_style)]
+         Paragraph(f'<font color="{get_yes_no_color(form_data.get("red_marks", "No"))}">{translated_red_marks}</font>', chinese_normal_style)]
     ]
     
     walk_table = Table(walk_data, colWidths=[4*inch, 2*inch])
@@ -1139,15 +1151,17 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     ]
     
     for day in translated_days_to_track:
-        comfort_color = get_score_color(translated_comfort_scores[day])
-        appear_color = get_score_color(translated_appearance_scores[day])
+        comfort_score = translated_comfort_scores.get(day, 3)
+        appearance_score = translated_appearance_scores.get(day, 3)
+        comfort_color = get_score_color(comfort_score)
+        appear_color = get_score_color(appearance_score)
         
-        issue_text = translated_issues[day]
+        issue_text = translated_issues.get(day, "")
         
         index_data.append([
             create_paragraph(day),
-            Paragraph(f'<font color="{comfort_color}"><b>{translated_comfort_scores[day]}</b></font>', chinese_normal_style),
-            Paragraph(f'<font color="{appear_color}"><b>{translated_appearance_scores[day]}</b></font>', chinese_normal_style),
+            Paragraph(f'<font color="{comfort_color}"><b>{comfort_score}</b></font>', chinese_normal_style),
+            Paragraph(f'<font color="{appear_color}"><b>{appearance_score}</b></font>', chinese_normal_style),
             issue_text[:60] + "..." if len(issue_text) > 60 else issue_text
         ])
     
@@ -1179,13 +1193,13 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     
     final_data = [
         [create_paragraph(prepared_by_label, bold=True), 
-         create_paragraph(translated_prepared_by), 
+         create_paragraph(str(translated_prepared_by)), 
          create_paragraph(date_label, bold=True), 
-         create_paragraph(form_data['prep_date'].strftime('%Y-%m-%d'))],
+         create_paragraph(prep_date_str)],
         [create_paragraph(approved_by_label, bold=True), 
-         create_paragraph(translated_approved_by), 
+         create_paragraph(str(translated_approved_by)), 
          create_paragraph(overall_result_label, bold=True), 
-         create_paragraph(translated_overall_result)]
+         create_paragraph(str(translated_overall_result))]
     ]
     
     final_table = Table(final_data, colWidths=[1.2*inch, 2.3*inch, 1.2*inch, 2.3*inch])
@@ -1234,11 +1248,12 @@ class PDFWithHeaderFooter(SimpleDocTemplate):
     doc.build(elements)
     buffer.seek(0)
     return buffer
+
 # Enhanced helper function to display text input with proper translation
 def translated_text_input(label, key, placeholder="", type="text"):
     """Create a text input that properly handles translation between languages"""
     # Get current value from session state
-    current_value = st.session_state.form_data[key]
+    current_value = st.session_state.form_data.get(key, "")
     
     # Store original English text when first entered
     if current_value and key not in st.session_state.original_english_texts:
@@ -1295,13 +1310,13 @@ def translated_text_input(label, key, placeholder="", type="text"):
             if new_value:
                 store_original_text(key, new_value)
     
-    return st.session_state.form_data[key]
+    return st.session_state.form_data.get(key, "")
 
 # Enhanced helper function for radio buttons
 def translated_radio(label, key, options, index=0, horizontal=True):
     """Create a radio button with proper translation handling"""
     # Get current value from session state
-    current_value = st.session_state.form_data[key]
+    current_value = st.session_state.form_data.get(key, options[index] if options else "")
     
     # Store original if not already stored
     if current_value and f"{key}_options" not in st.session_state.original_english_texts:
@@ -1348,13 +1363,13 @@ def translated_radio(label, key, options, index=0, horizontal=True):
         else:
             st.session_state.form_data[key] = selected
     
-    return st.session_state.form_data[key]
+    return st.session_state.form_data.get(key, "")
 
 # Enhanced helper function for multiselect
 def translated_multiselect(label, key, options, default=None):
     """Create a multiselect with proper translation handling"""
     # Get current values from session state
-    current_values = st.session_state.form_data[key]
+    current_values = st.session_state.form_data.get(key, default or [])
     
     # Store original options if not already stored
     if f"{key}_options" not in st.session_state.original_english_texts:
@@ -1395,7 +1410,7 @@ def translated_multiselect(label, key, options, default=None):
         else:
             st.session_state.form_data[key] = selected
     
-    return st.session_state.form_data[key]
+    return st.session_state.form_data.get(key, [])
 
 # Helper function for slider
 def translated_slider(label, key, min_value, max_value, default_value):
@@ -1455,7 +1470,7 @@ with st.sidebar:
     # Display selected location in a badge
     st.markdown(f"""
     <div class="location-badge">
-        {ICONS["location"]} {selected_city} ({CHINESE_CITIES[selected_city]})
+        {ICONS["location"]} {selected_city} ({CHINESE_CITIES.get(selected_city, selected_city)})
     </div>
     """, unsafe_allow_html=True)
     
@@ -1641,8 +1656,9 @@ with tab3:
                 # Create a unique key for each question
                 key = f"extended_{period}_{q}"
                 
-                # Get current value
-                current_value = st.session_state.form_data['extended_data'].get(period, {}).get(q, "No")
+                # Get current value from nested structure
+                period_data = st.session_state.form_data.get('extended_data', {}).get(period, {})
+                current_value = period_data.get(q, "No")
                 
                 # Store original if not stored
                 if current_value and key not in st.session_state.original_english_texts:
@@ -1667,11 +1683,16 @@ with tab3:
                 else:
                     display_options = options
                 
+                # Get index for default selection
+                index = 0
+                if display_value in display_options:
+                    index = display_options.index(display_value)
+                
                 selected = st.radio(
                     display_q,
                     display_options,
                     horizontal=True,
-                    index=display_options.index(display_value) if display_value in display_options else 0,
+                    index=index,
                     key=f"extended_radio_{period}_{q}"
                 )
                 
@@ -1682,6 +1703,7 @@ with tab3:
                         try:
                             idx = display_options.index(selected)
                             english_value = options[idx]
+                            # Update nested structure
                             if period not in st.session_state.form_data['extended_data']:
                                 st.session_state.form_data['extended_data'][period] = {}
                             st.session_state.form_data['extended_data'][period][q] = english_value
@@ -1775,7 +1797,7 @@ with tab3:
         # Date input
         prep_date = st.date_input(
             f"{ICONS['time']} {get_text('Date')}",
-            value=st.session_state.form_data['prep_date'],
+            value=st.session_state.form_data.get('prep_date', datetime.now().date()),
             key="prep_date_input"
         )
         st.session_state.form_data['prep_date'] = prep_date
@@ -1788,7 +1810,7 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if st.button(f"{ICONS['generate']} {get_text('generate_pdf')}", use_container_width=True):
-        if not st.session_state.form_data['po_number'] or not st.session_state.form_data['brand']:
+        if not st.session_state.form_data.get('po_number') or not st.session_state.form_data.get('brand'):
             st.error(f"{ICONS['error']} {get_text('fill_required')}")
         else:
             with st.spinner(f"{ICONS['time']} {get_text('creating_pdf')}"):
@@ -1800,7 +1822,7 @@ with col2:
                     with st.expander(f"{ICONS['info']} {get_text('pdf_details')}"):
                         col_info1, col_info2 = st.columns(2)
                         with col_info1:
-                            st.metric(get_text("location"), f"{selected_city} ({CHINESE_CITIES[selected_city]})")
+                            st.metric(get_text("location"), f"{selected_city} ({CHINESE_CITIES.get(selected_city, selected_city)})")
                             st.metric(get_text("report_language"), "Mandarin" if st.session_state.pdf_language == "zh" else "English")
                         with col_info2:
                             china_tz = pytz.timezone('Asia/Shanghai')
@@ -1808,7 +1830,7 @@ with col2:
                             st.metric(get_text("generated"), current_time.strftime('%H:%M:%S'))
                     
                     # Download button
-                    po_number = st.session_state.form_data['po_number']
+                    po_number = st.session_state.form_data.get('po_number', '')
                     filename = f"Wear_Test_Report_{po_number}_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
                     st.download_button(
                         label=f"{ICONS['download']} {get_text('download_pdf')}",
@@ -1820,6 +1842,12 @@ with col2:
                     
                 except Exception as e:
                     st.error(f"{ICONS['error']} {get_text('error_generating')}: {str(e)}")
+                    # Debug information
+                    with st.expander("Debug Information"):
+                        st.write("Form Data Structure:")
+                        st.json(st.session_state.form_data)
+                        st.write("Extended Data:")
+                        st.json(st.session_state.form_data.get('extended_data', {}))
 
 # Footer
 st.markdown("---")
@@ -1829,7 +1857,7 @@ st.markdown(f"""
         {ICONS['title']} {get_text('footer_text')}
     </p>
     <p style='font-size: 0.9rem; color: #666666;'>
-        {ICONS['location']} {get_text('location')}: {selected_city} ({CHINESE_CITIES[selected_city]}) | 
+        {ICONS['location']} {get_text('location')}: {selected_city} ({CHINESE_CITIES.get(selected_city, selected_city)}) | 
         {ICONS['language']} {get_text('report_language')}: {'Mandarin' if st.session_state.pdf_language == 'zh' else 'English'}
     </p>
     <p style='font-size: 0.8rem; color: #999999; margin-top: 1rem;'>
