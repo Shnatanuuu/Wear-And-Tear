@@ -262,7 +262,7 @@ if 'translations_cache' not in st.session_state:
     st.session_state.translations_cache = {}
 
 # Translation function using GPT-4o mini
-def translate_text(text, target_language="zh"):
+def translate_text(text, target_language="zh", preserve_numbers=True):
     """Translate text using GPT-4o mini with caching"""
     if not text or not text.strip():
         return text
@@ -272,10 +272,13 @@ def translate_text(text, target_language="zh"):
     if cache_key in st.session_state.translations_cache:
         return st.session_state.translations_cache[cache_key]
     
-    # Don't translate numbers or alphanumeric codes
-    if text.strip().replace('.', '').replace(',', '').replace('-', '').replace('/', '').isdigit():
-        st.session_state.translations_cache[cache_key] = text
-        return text
+    # Don't translate numbers or alphanumeric codes if preserve_numbers is True
+    if preserve_numbers:
+        # Check if text is numeric (including with decimal points, commas, etc.)
+        temp_text = text.strip().replace('.', '').replace(',', '').replace('-', '').replace('/', '').replace(' ', '')
+        if temp_text.isdigit():
+            st.session_state.translations_cache[cache_key] = text
+            return text
     
     if not openai_client:
         # Fallback translations if no API key
@@ -286,7 +289,7 @@ def translate_text(text, target_language="zh"):
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"You are a professional translator. Translate the following text to {'Chinese (Simplified)' if target_language == 'zh' else 'English'}. Only return the translation, no explanations. Preserve any numbers, dates, and special formatting."},
+                {"role": "system", "content": f"You are a professional translator. Translate the following text to {'Chinese (Simplified)' if target_language == 'zh' else 'English'}. Only return the translation, no explanations. Preserve any numbers, dates, codes (like PO numbers), and special formatting exactly as they appear."},
                 {"role": "user", "content": text}
             ],
             temperature=0.1,
@@ -388,11 +391,39 @@ def get_score_color(score):
     else:
         return "#e74c3c"  # Red
 
-def translate_pdf_content(text, pdf_lang):
+def translate_pdf_content(text, pdf_lang, preserve_numbers=True):
     """Translate text for PDF based on selected language"""
     if pdf_lang == "en" or not openai_client:
         return text
-    return translate_text(text, "zh")
+    return translate_text(text, "zh", preserve_numbers)
+
+def translate_form_data(data, pdf_lang):
+    """Translate form data for PDF generation"""
+    if pdf_lang == "en" or not openai_client:
+        return data
+    
+    # Don't translate numeric/date data, only translate text descriptions
+    if isinstance(data, (int, float)):
+        return data
+    elif isinstance(data, datetime):
+        return data
+    elif isinstance(data, list):
+        # For lists (like testers, fit sizes), translate each item
+        return [translate_pdf_content(item, pdf_lang, preserve_numbers=True) for item in data]
+    elif isinstance(data, str):
+        # Check if it's a date string
+        try:
+            datetime.strptime(data, '%Y-%m-%d')
+            return data  # Don't translate date strings
+        except ValueError:
+            # Check if it's mostly numeric (like PO number)
+            temp_data = data.replace(' ', '').replace('-', '').replace('/', '').replace('.', '')
+            if temp_data.isdigit():
+                return data  # Don't translate numeric codes
+            else:
+                return translate_pdf_content(data, pdf_lang, preserve_numbers=True)
+    else:
+        return translate_pdf_content(str(data), pdf_lang, preserve_numbers=True)
 
 # Enhanced PDF Generation with Headers and Footers
 class PDFWithHeaderFooter(SimpleDocTemplate):
@@ -598,8 +629,11 @@ def generate_pdf():
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("GRAND STEP (H.K.) LTD", company_style))
     
-    # Title
-    report_title = translate_pdf_content("WEAR TEST ASSESSMENT REPORT", pdf_lang)
+    # Title - translate based on PDF language
+    if pdf_lang == "zh":
+        report_title = "穿着测试评估报告"
+    else:
+        report_title = "WEAR TEST ASSESSMENT REPORT"
     elements.append(Paragraph(report_title, title_style))
     
     # Location and date
@@ -608,10 +642,11 @@ def generate_pdf():
     
     if pdf_lang == "zh":
         location_text = f"地点: {selected_city} ({chinese_city})"
+        date_label = "报告日期"
     else:
         location_text = f"Location: {selected_city}"
+        date_label = "Report Date"
     
-    date_label = translate_pdf_content("Report Date", pdf_lang)
     date_text = f"{date_label}: {current_time.strftime('%Y-%m-%d')}"
     
     elements.append(Paragraph(location_text, subtitle_style))
@@ -640,31 +675,96 @@ def generate_pdf():
         
         return Paragraph(text, custom_style)
     
+    # Translate form data for PDF based on selected language
+    translated_po_number = translate_form_data(po_number, pdf_lang)
+    translated_factory = translate_form_data(factory, pdf_lang)
+    translated_color = translate_form_data(color, pdf_lang)
+    translated_style = translate_form_data(style, pdf_lang)
+    translated_brand = translate_form_data(brand, pdf_lang)
+    translated_description = translate_form_data(description, pdf_lang)
+    translated_sample_type = translate_form_data(sample_type, pdf_lang)
+    translated_testers = translate_form_data(testers, pdf_lang)
+    translated_fit_sizes = translate_form_data(fit_sizes, pdf_lang)
+    translated_upper_feel = translate_form_data(upper_feel, pdf_lang)
+    translated_lining_feel = translate_form_data(lining_feel, pdf_lang)
+    translated_sock_feel = translate_form_data(sock_feel, pdf_lang)
+    translated_toe_length = translate_form_data(toe_length, pdf_lang)
+    translated_ball_position = translate_form_data(ball_position, pdf_lang)
+    translated_shoe_flex = translate_form_data(shoe_flex, pdf_lang)
+    translated_arch_support = translate_form_data(arch_support, pdf_lang)
+    translated_top_gapping = translate_form_data(top_gapping, pdf_lang)
+    translated_fit_properly = translate_form_data(fit_properly, pdf_lang)
+    translated_feel_fit = translate_form_data(feel_fit, pdf_lang)
+    translated_interior_lining = translate_form_data(interior_lining, pdf_lang)
+    translated_feel_stability = translate_form_data(feel_stability, pdf_lang)
+    translated_slipping = translate_form_data(slipping, pdf_lang)
+    translated_sole_flexibility = translate_form_data(sole_flexibility, pdf_lang)
+    translated_toe_room = translate_form_data(toe_room, pdf_lang)
+    translated_rubbing = translate_form_data(rubbing, pdf_lang)
+    translated_red_marks = translate_form_data(red_marks, pdf_lang)
+    translated_prepared_by = translate_form_data(prepared_by, pdf_lang)
+    translated_approved_by = translate_form_data(approved_by, pdf_lang)
+    translated_overall_result = translate_form_data(overall_result, pdf_lang)
+    
+    # Translate extended wear data
+    translated_extended_data = {}
+    for period in time_periods:
+        translated_extended_data[period] = {}
+        for q in questions_d:
+            translated_extended_data[period][translate_pdf_content(q, pdf_lang)] = translate_form_data(extended_data[period][q], pdf_lang)
+    
+    # Translate comfort data
+    translated_days_to_track = [translate_pdf_content(day, pdf_lang) for day in days_to_track]
+    translated_comfort_scores = {}
+    translated_appearance_scores = {}
+    translated_issues = {}
+    
+    for i, day in enumerate(days_to_track):
+        translated_day = translated_days_to_track[i]
+        translated_comfort_scores[translated_day] = comfort_scores[day]
+        translated_appearance_scores[translated_day] = appearance_scores[day]
+        translated_issues[translated_day] = translate_form_data(issues[day], pdf_lang)
+    
     # Basic Info Table
-    basic_title = translate_pdf_content("1. BASIC INFORMATION", pdf_lang)
+    if pdf_lang == "zh":
+        basic_title = "1. 基本信息"
+    else:
+        basic_title = "1. BASIC INFORMATION"
     elements.append(Paragraph(basic_title, heading_style))
     
+    # Translate labels
+    po_label = translate_pdf_content("PO Number:", pdf_lang)
+    color_label = translate_pdf_content("Color:", pdf_lang)
+    brand_label = translate_pdf_content("Brand:", pdf_lang)
+    date_label = translate_pdf_content("Date:", pdf_lang)
+    factory_label = translate_pdf_content("Factory:", pdf_lang)
+    style_label = translate_pdf_content("Style:", pdf_lang)
+    description_label = translate_pdf_content("Description:", pdf_lang)
+    sample_type_label = translate_pdf_content("Sample Type:", pdf_lang)
+    testers_label = translate_pdf_content("Testers:", pdf_lang)
+    fit_sizes_label = translate_pdf_content("Fit Sizes:", pdf_lang)
+    
     basic_data = [
-        [create_paragraph(translate_pdf_content("PO Number:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(po_number, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Color:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(color, pdf_lang))],
-        [create_paragraph(translate_pdf_content("Brand:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(brand, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Date:", pdf_lang), bold=True), 
+        [create_paragraph(po_label, bold=True), 
+         create_paragraph(translated_po_number), 
+         create_paragraph(color_label, bold=True), 
+         create_paragraph(translated_color)],
+        [create_paragraph(brand_label, bold=True), 
+         create_paragraph(translated_brand), 
+         create_paragraph(date_label, bold=True), 
          create_paragraph(prep_date.strftime('%Y-%m-%d'))],
-        [create_paragraph(translate_pdf_content("Factory:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(factory, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Style:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(style, pdf_lang))],
-        [create_paragraph(translate_pdf_content("Description:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(description, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Sample Type:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(sample_type, pdf_lang))],
-        [create_paragraph(translate_pdf_content("Testers:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(", ".join(testers), pdf_lang)), 
-         create_paragraph(translate_pdf_content("Fit Sizes:", pdf_lang), bold=True), 
-         create_paragraph(", ".join(fit_sizes))]
+        [create_paragraph(factory_label, bold=True), 
+         create_paragraph(translated_factory), 
+         create_paragraph(style_label, bold=True), 
+         create_paragraph(translated_style)],
+        [create_paragraph(description_label, bold=True), 
+         create_paragraph(translated_description), 
+         create_paragraph(sample_type_label, bold=True), 
+         create_paragraph(translated_sample_type)],
+        [create_paragraph(testers_label, bold=True), 
+         create_paragraph(", ".join(translated_testers) if isinstance(translated_testers, list) else translated_testers), 
+         create_paragraph(fit_sizes_label, bold=True), 
+         create_paragraph(", ".join(translated_fit_sizes) if isinstance(translated_fit_sizes, list) else translated_fit_sizes)]
     ]
     
     basic_table = Table(basic_data, colWidths=[1.3*inch, 2.3*inch, 1.3*inch, 2.3*inch])
@@ -687,18 +787,27 @@ def generate_pdf():
     elements.append(Spacer(1, 20))
     
     # Section A
-    section_a_title = translate_pdf_content("2. BEFORE TRYING ON (TOUCH & FEEL)", pdf_lang)
+    if pdf_lang == "zh":
+        section_a_title = "2. 试穿前（触摸感觉）"
+    else:
+        section_a_title = "2. BEFORE TRYING ON (TOUCH & FEEL)"
     elements.append(Paragraph(section_a_title, heading_style))
     
+    aspect_label = translate_pdf_content("Aspect", pdf_lang)
+    rating_label = translate_pdf_content("Rating", pdf_lang)
+    upper_label = translate_pdf_content("Upper Material Feel", pdf_lang)
+    lining_label = translate_pdf_content("Lining Material Feel", pdf_lang)
+    sock_label = translate_pdf_content("Sock Cushion Feel", pdf_lang)
+    
     feel_data = [
-        [create_paragraph(translate_pdf_content("Aspect", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content("Rating", pdf_lang), bold=True)],
-        [create_paragraph(translate_pdf_content("Upper Material Feel", pdf_lang)), 
-         Paragraph(f'<font color="{get_color_for_rating(upper_feel)}">{translate_pdf_content(upper_feel, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Lining Material Feel", pdf_lang)), 
-         Paragraph(f'<font color="{get_color_for_rating(lining_feel)}">{translate_pdf_content(lining_feel, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Sock Cushion Feel", pdf_lang)), 
-         Paragraph(f'<font color="{get_color_for_rating(sock_feel)}">{translate_pdf_content(sock_feel, pdf_lang)}</font>', chinese_normal_style)]
+        [create_paragraph(aspect_label, bold=True), 
+         create_paragraph(rating_label, bold=True)],
+        [create_paragraph(upper_label), 
+         Paragraph(f'<font color="{get_color_for_rating(upper_feel)}">{translated_upper_feel}</font>', chinese_normal_style)],
+        [create_paragraph(lining_label), 
+         Paragraph(f'<font color="{get_color_for_rating(lining_feel)}">{translated_lining_feel}</font>', chinese_normal_style)],
+        [create_paragraph(sock_label), 
+         Paragraph(f'<font color="{get_color_for_rating(sock_feel)}">{translated_sock_feel}</font>', chinese_normal_style)]
     ]
     
     feel_table = Table(feel_data, colWidths=[3.5*inch, 2.5*inch])
@@ -715,24 +824,37 @@ def generate_pdf():
     elements.append(Spacer(1, 20))
     
     # Section B
-    section_b_title = translate_pdf_content("3. FIT BEFORE WALKING (STANDING)", pdf_lang)
+    if pdf_lang == "zh":
+        section_b_title = "3. 行走前合脚性（站立）"
+    else:
+        section_b_title = "3. FIT BEFORE WALKING (STANDING)"
     elements.append(Paragraph(section_b_title, heading_style))
     
+    question_label = translate_pdf_content("Question", pdf_lang)
+    response_label = translate_pdf_content("Response", pdf_lang)
+    
+    toe_length_q = translate_pdf_content("Is toe length okay?", pdf_lang)
+    ball_position_q = translate_pdf_content("Ball of foot at correct place?", pdf_lang)
+    shoe_flex_q = translate_pdf_content("Shoe flex at proper place?", pdf_lang)
+    arch_support_q = translate_pdf_content("Feel arch support?", pdf_lang)
+    top_gapping_q = translate_pdf_content("Shoe gapping at top line?", pdf_lang)
+    fit_properly_q = translate_pdf_content("Shoes fit properly?", pdf_lang)
+    
     fit_data = [
-        [create_paragraph(translate_pdf_content("Question", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content("Response", pdf_lang), bold=True)],
-        [create_paragraph(translate_pdf_content("Is toe length okay?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(toe_length)}">{translate_pdf_content(toe_length, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Ball of foot at correct place?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(ball_position)}">{translate_pdf_content(ball_position, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Shoe flex at proper place?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(shoe_flex)}">{translate_pdf_content(shoe_flex, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Feel arch support?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(arch_support)}">{translate_pdf_content(arch_support, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Shoe gapping at top line?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(top_gapping)}">{translate_pdf_content(top_gapping, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Shoes fit properly?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(fit_properly)}">{translate_pdf_content(fit_properly, pdf_lang)}</font>', chinese_normal_style)]
+        [create_paragraph(question_label, bold=True), 
+         create_paragraph(response_label, bold=True)],
+        [create_paragraph(toe_length_q), 
+         Paragraph(f'<font color="{get_yes_no_color(toe_length)}">{translated_toe_length}</font>', chinese_normal_style)],
+        [create_paragraph(ball_position_q), 
+         Paragraph(f'<font color="{get_yes_no_color(ball_position)}">{translated_ball_position}</font>', chinese_normal_style)],
+        [create_paragraph(shoe_flex_q), 
+         Paragraph(f'<font color="{get_yes_no_color(shoe_flex)}">{translated_shoe_flex}</font>', chinese_normal_style)],
+        [create_paragraph(arch_support_q), 
+         Paragraph(f'<font color="{get_yes_no_color(arch_support)}">{translated_arch_support}</font>', chinese_normal_style)],
+        [create_paragraph(top_gapping_q), 
+         Paragraph(f'<font color="{get_yes_no_color(top_gapping)}">{translated_top_gapping}</font>', chinese_normal_style)],
+        [create_paragraph(fit_properly_q), 
+         Paragraph(f'<font color="{get_yes_no_color(fit_properly)}">{translated_fit_properly}</font>', chinese_normal_style)]
     ]
     
     fit_table = Table(fit_data, colWidths=[4*inch, 2*inch])
@@ -749,28 +871,40 @@ def generate_pdf():
     elements.append(Spacer(1, 20))
     
     # Section C
-    section_c_title = translate_pdf_content("4. AFTER 8-15 MINUTES WALKING", pdf_lang)
+    if pdf_lang == "zh":
+        section_c_title = "4. 行走8-15分钟后"
+    else:
+        section_c_title = "4. AFTER 8-15 MINUTES WALKING"
     elements.append(Paragraph(section_c_title, heading_style))
     
+    feel_fit_q = translate_pdf_content("Can feel shoe fit?", pdf_lang)
+    interior_lining_q = translate_pdf_content("Interior lining feels good?", pdf_lang)
+    feel_stability_q = translate_pdf_content("Can feel stability?", pdf_lang)
+    slipping_q = translate_pdf_content("Shoe slipping?", pdf_lang)
+    sole_flexibility_q = translate_pdf_content("Sole flexibility good?", pdf_lang)
+    toe_room_q = translate_pdf_content("Enough toe room?", pdf_lang)
+    rubbing_q = translate_pdf_content("Any rubbing?", pdf_lang)
+    red_marks_q = translate_pdf_content("Red marks after removing socks?", pdf_lang)
+    
     walk_data = [
-        [create_paragraph(translate_pdf_content("Question", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content("Response", pdf_lang), bold=True)],
-        [create_paragraph(translate_pdf_content("Can feel shoe fit?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(feel_fit)}">{translate_pdf_content(feel_fit, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Interior lining feels good?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(interior_lining)}">{translate_pdf_content(interior_lining, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Can feel stability?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(feel_stability)}">{translate_pdf_content(feel_stability, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Shoe slipping?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(slipping)}">{translate_pdf_content(slipping, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Sole flexibility good?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(sole_flexibility)}">{translate_pdf_content(sole_flexibility, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Enough toe room?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(toe_room)}">{translate_pdf_content(toe_room, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Any rubbing?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(rubbing)}">{translate_pdf_content(rubbing, pdf_lang)}</font>', chinese_normal_style)],
-        [create_paragraph(translate_pdf_content("Red marks after removing socks?", pdf_lang)), 
-         Paragraph(f'<font color="{get_yes_no_color(red_marks)}">{translate_pdf_content(red_marks, pdf_lang)}</font>', chinese_normal_style)]
+        [create_paragraph(question_label, bold=True), 
+         create_paragraph(response_label, bold=True)],
+        [create_paragraph(feel_fit_q), 
+         Paragraph(f'<font color="{get_yes_no_color(feel_fit)}">{translated_feel_fit}</font>', chinese_normal_style)],
+        [create_paragraph(interior_lining_q), 
+         Paragraph(f'<font color="{get_yes_no_color(interior_lining)}">{translated_interior_lining}</font>', chinese_normal_style)],
+        [create_paragraph(feel_stability_q), 
+         Paragraph(f'<font color="{get_yes_no_color(feel_stability)}">{translated_feel_stability}</font>', chinese_normal_style)],
+        [create_paragraph(slipping_q), 
+         Paragraph(f'<font color="{get_yes_no_color(slipping)}">{translated_slipping}</font>', chinese_normal_style)],
+        [create_paragraph(sole_flexibility_q), 
+         Paragraph(f'<font color="{get_yes_no_color(sole_flexibility)}">{translated_sole_flexibility}</font>', chinese_normal_style)],
+        [create_paragraph(toe_room_q), 
+         Paragraph(f'<font color="{get_yes_no_color(toe_room)}">{translated_toe_room}</font>', chinese_normal_style)],
+        [create_paragraph(rubbing_q), 
+         Paragraph(f'<font color="{get_yes_no_color(rubbing)}">{translated_rubbing}</font>', chinese_normal_style)],
+        [create_paragraph(red_marks_q), 
+         Paragraph(f'<font color="{get_yes_no_color(red_marks)}">{translated_red_marks}</font>', chinese_normal_style)]
     ]
     
     walk_table = Table(walk_data, colWidths=[4*inch, 2*inch])
@@ -787,22 +921,30 @@ def generate_pdf():
     elements.append(PageBreak())
     
     # Section D
-    section_d_title = translate_pdf_content("5. EXTENDED WEAR TESTING", pdf_lang)
+    if pdf_lang == "zh":
+        section_d_title = "5. 延长穿着测试"
+    else:
+        section_d_title = "5. EXTENDED WEAR TESTING"
     elements.append(Paragraph(section_d_title, heading_style))
     
-    for period in time_periods:
+    translated_time_periods = [translate_pdf_content(period, pdf_lang) for period in time_periods]
+    
+    for i, period in enumerate(time_periods):
+        translated_period = translated_time_periods[i]
         period_data = [
-            [create_paragraph(translate_pdf_content("Question", pdf_lang), bold=True), 
-             create_paragraph(translate_pdf_content("Response", pdf_lang), bold=True)]
+            [create_paragraph(question_label, bold=True), 
+             create_paragraph(response_label, bold=True)]
         ]
+        
         for q in questions_d:
-            response = extended_data[period][q]
+            translated_q = translate_pdf_content(q, pdf_lang)
+            response = translated_extended_data[period][translated_q]
             period_data.append([
-                create_paragraph(translate_pdf_content(q, pdf_lang)), 
-                Paragraph(f'<font color="{get_yes_no_color(response)}">{translate_pdf_content(response, pdf_lang)}</font>', chinese_normal_style)
+                create_paragraph(translated_q), 
+                Paragraph(f'<font color="{get_yes_no_color(response)}">{response}</font>', chinese_normal_style)
             ])
         
-        elements.append(Paragraph(translate_pdf_content(period, pdf_lang), styles['Heading3']))
+        elements.append(Paragraph(translated_period, styles['Heading3']))
         period_table = Table(period_data, colWidths=[4*inch, 2*inch])
         period_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ecc71')),
@@ -819,28 +961,36 @@ def generate_pdf():
     elements.append(PageBreak())
     
     # Section E
-    section_e_title = translate_pdf_content("6. COMFORT & APPEARANCE INDEX", pdf_lang)
+    if pdf_lang == "zh":
+        section_e_title = "6. 舒适度与外观指数"
+    else:
+        section_e_title = "6. COMFORT & APPEARANCE INDEX"
     elements.append(Paragraph(section_e_title, heading_style))
+    
+    day_label = translate_pdf_content("Day", pdf_lang)
+    comfort_label = translate_pdf_content("Comfort (1-5)", pdf_lang)
+    appearance_label = translate_pdf_content("Appearance (1-5)", pdf_lang)
+    issues_label = translate_pdf_content("Issues Noticed", pdf_lang)
     
     index_data = [
         [
-            create_paragraph(translate_pdf_content("Day", pdf_lang), bold=True), 
-            create_paragraph(translate_pdf_content("Comfort (1-5)", pdf_lang), bold=True), 
-            create_paragraph(translate_pdf_content("Appearance (1-5)", pdf_lang), bold=True), 
-            create_paragraph(translate_pdf_content("Issues Noticed", pdf_lang), bold=True)
+            create_paragraph(day_label, bold=True), 
+            create_paragraph(comfort_label, bold=True), 
+            create_paragraph(appearance_label, bold=True), 
+            create_paragraph(issues_label, bold=True)
         ]
     ]
     
-    for day in days_to_track:
-        comfort_color = get_score_color(comfort_scores[day])
-        appear_color = get_score_color(appearance_scores[day])
+    for day in translated_days_to_track:
+        comfort_color = get_score_color(translated_comfort_scores[day])
+        appear_color = get_score_color(translated_appearance_scores[day])
         
-        issue_text = translate_pdf_content(issues[day], pdf_lang)
+        issue_text = translated_issues[day]
         
         index_data.append([
-            create_paragraph(translate_pdf_content(day, pdf_lang)),
-            Paragraph(f'<font color="{comfort_color}"><b>{comfort_scores[day]}</b></font>', chinese_normal_style),
-            Paragraph(f'<font color="{appear_color}"><b>{appearance_scores[day]}</b></font>', chinese_normal_style),
+            create_paragraph(day),
+            Paragraph(f'<font color="{comfort_color}"><b>{translated_comfort_scores[day]}</b></font>', chinese_normal_style),
+            Paragraph(f'<font color="{appear_color}"><b>{translated_appearance_scores[day]}</b></font>', chinese_normal_style),
             issue_text[:60] + "..." if len(issue_text) > 60 else issue_text
         ])
     
@@ -859,20 +1009,26 @@ def generate_pdf():
     elements.append(Spacer(1, 25))
     
     # Final Assessment
-    final_title = translate_pdf_content("7. FINAL ASSESSMENT", pdf_lang)
+    if pdf_lang == "zh":
+        final_title = "7. 最终评估"
+    else:
+        final_title = "7. FINAL ASSESSMENT"
     elements.append(Paragraph(f"{final_title}", heading_style))
     
-    translated_result = translate_pdf_content(overall_result, pdf_lang)
+    prepared_by_label = translate_pdf_content("Prepared By:", pdf_lang)
+    date_label = translate_pdf_content("Date:", pdf_lang)
+    approved_by_label = translate_pdf_content("Approved By:", pdf_lang)
+    overall_result_label = translate_pdf_content("Overall Result:", pdf_lang)
     
     final_data = [
-        [create_paragraph(translate_pdf_content("Prepared By:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(prepared_by, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Date:", pdf_lang), bold=True), 
+        [create_paragraph(prepared_by_label, bold=True), 
+         create_paragraph(translated_prepared_by), 
+         create_paragraph(date_label, bold=True), 
          create_paragraph(prep_date.strftime('%Y-%m-%d'))],
-        [create_paragraph(translate_pdf_content("Approved By:", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content(approved_by, pdf_lang)), 
-         create_paragraph(translate_pdf_content("Overall Result:", pdf_lang), bold=True), 
-         create_paragraph(translated_result)]
+        [create_paragraph(approved_by_label, bold=True), 
+         create_paragraph(translated_approved_by), 
+         create_paragraph(overall_result_label, bold=True), 
+         create_paragraph(translated_overall_result)]
     ]
     
     final_table = Table(final_data, colWidths=[1.2*inch, 2.3*inch, 1.2*inch, 2.3*inch])
@@ -890,11 +1046,14 @@ def generate_pdf():
     
     # Signature lines
     elements.append(Spacer(1, 40))
+    prepared_by_sig = translate_pdf_content("Prepared By Signature", pdf_lang)
+    approved_by_sig = translate_pdf_content("Approved By Signature", pdf_lang)
+    
     sig_data = [
         ['', ''],
         ['_________________________', '_________________________'],
-        [create_paragraph(translate_pdf_content("Prepared By Signature", pdf_lang), bold=True), 
-         create_paragraph(translate_pdf_content("Approved By Signature", pdf_lang), bold=True)]
+        [create_paragraph(prepared_by_sig, bold=True), 
+         create_paragraph(approved_by_sig, bold=True)]
     ]
     
     sig_table = Table(sig_data, colWidths=[3*inch, 3*inch])
@@ -908,10 +1067,10 @@ def generate_pdf():
     
     # Footer note
     elements.append(Spacer(1, 15))
-    footer_note = translate_pdf_content(
-        "This report is confidential and property of GRAND STEP (H.K.) LTD. Unauthorized distribution is prohibited.",
-        pdf_lang
-    )
+    if pdf_lang == "zh":
+        footer_note = "本报告为GRAND STEP (H.K.) LTD机密文件，未经授权禁止分发。"
+    else:
+        footer_note = "This report is confidential and property of GRAND STEP (H.K.) LTD. Unauthorized distribution is prohibited."
     elements.append(Paragraph(footer_note, chinese_normal_style))
     
     # Build PDF
@@ -1009,6 +1168,22 @@ tab1, tab2, tab3 = st.tabs([
     f"{ICONS['test']} Testing Data",
     f"{ICONS['assessment']} {get_text('final_assessment')}"
 ])
+
+# Define time periods and questions for Section D (needed before they're used)
+time_periods = ["1 Hour", "1 Day", "1 Week", "2 Weeks", "3 Weeks", "4 Weeks"]
+questions_d = [
+    "Does shoe feel unstable when walking?",
+    "Any upper broken or damage?",
+    "Any sole gapping?",
+    "Does lining color come off?",
+    "Any appearance changes?",
+    "Any piece rubbing feet?",
+    "Is bottom severely worn?"
+]
+
+# Define days for Section E
+days_to_track = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", 
+                 "2 Weeks", "3 Weeks", "4 Weeks", "5 Weeks"]
 
 with tab1:
     # Basic Information
@@ -1152,20 +1327,15 @@ with tab2:
         slipping = st.radio("Is shoe slipping on feet?", ["No", "Yes"], horizontal=True, key="slip")
         toe_room = st.radio("Enough room in toe area?", ["No", "Yes"], horizontal=True, key="toe")
         red_marks = st.radio("Red marks after removing socks?", ["No", "Yes"], horizontal=True, key="marks")
+    
+    # Initialize extended_data here
+    extended_data = {}
+    for period in time_periods:
+        extended_data[period] = {}
+        for q in questions_d:
+            extended_data[period][q] = "No"  # Default value
 
 with tab3:
-    # Define time periods and questions for Section D
-    time_periods = ["1 Hour", "1 Day", "1 Week", "2 Weeks", "3 Weeks", "4 Weeks"]
-    questions_d = [
-        "Does shoe feel unstable when walking?",
-        "Any upper broken or damage?",
-        "Any sole gapping?",
-        "Does lining color come off?",
-        "Any appearance changes?",
-        "Any piece rubbing feet?",
-        "Is bottom severely worn?"
-    ]
-    
     # Section D: Extended Wear Testing
     st.markdown(f"""
     <div class="section-header">
@@ -1174,16 +1344,10 @@ with tab3:
     </div>
     """, unsafe_allow_html=True)
     
-    extended_data = {}
     for period in time_periods:
         with st.expander(f"{ICONS['time']} {period} Assessment"):
-            extended_data[period] = {}
             for q in questions_d:
                 extended_data[period][q] = st.radio(q, ["No", "Yes"], horizontal=True, key=f"{period}_{q}")
-    
-    # Define days for Section E
-    days_to_track = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", 
-                     "2 Weeks", "3 Weeks", "4 Weeks", "5 Weeks"]
     
     # Section E: Comfort & Appearance Index
     st.markdown(f"""
