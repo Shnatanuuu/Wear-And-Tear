@@ -368,6 +368,76 @@ def _font(pdf_lang, bold=False):
     return 'Helvetica-Bold' if bold else 'Helvetica'
 
 
+def _char_width(char, font_size, pdf_lang):
+    """Estimate the rendered width of a single character."""
+    # Chinese/CJK characters are full-width (roughly 1x font_size)
+    if '\u4e00' <= char <= '\u9fff' or '\u3000' <= char <= '\u303f' or '\uff00' <= char <= '\uffef':
+        return font_size * 0.95
+    # ASCII average width
+    return font_size * 0.52
+
+
+def _text_width(text, font_size, pdf_lang):
+    """Estimate pixel width of a string, handling mixed CJK + ASCII."""
+    return sum(_char_width(ch, font_size, pdf_lang) for ch in text)
+
+
+def _wrap_text(text, max_width, font_size, pdf_lang):
+    """
+    Wrap text into lines that fit within max_width pixels.
+    Handles Chinese (character-level) and English (word-level) wrapping.
+    Returns a list of strings.
+    """
+    if not text:
+        return []
+
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+
+    if has_chinese:
+        # Character-level wrapping for Chinese text
+        lines = []
+        current_line = ""
+        current_width = 0
+        for char in text:
+            char_w = _char_width(char, font_size, pdf_lang)
+            if char == '\n':
+                lines.append(current_line)
+                current_line = ""
+                current_width = 0
+            elif current_width + char_w > max_width and current_line:
+                lines.append(current_line)
+                current_line = char
+                current_width = char_w
+            else:
+                current_line += char
+                current_width += char_w
+        if current_line:
+            lines.append(current_line)
+        return lines
+    else:
+        # Word-level wrapping for English text
+        lines = []
+        for paragraph in text.split('\n'):
+            words = paragraph.split()
+            if not words:
+                lines.append("")
+                continue
+            current_line = ""
+            current_width = 0
+            for word in words:
+                word_w = _text_width(word + " ", font_size, pdf_lang)
+                if current_width + word_w > max_width and current_line:
+                    lines.append(current_line.rstrip())
+                    current_line = word + " "
+                    current_width = word_w
+                else:
+                    current_line += word + " "
+                    current_width += word_w
+            if current_line.strip():
+                lines.append(current_line.rstrip())
+        return lines
+
+
 def draw_page_frame(c, page_num, total_pages, pdf_lang, city, city_zh, gen_time):
     """Draw header + footer on every page."""
     w, h = PAGE_W, PAGE_H
@@ -428,82 +498,134 @@ def draw_section_header(c, y, label, pdf_lang):
 
 
 def draw_kv_row(c, x, y, w, label, value, pdf_lang, shade=False):
-    """Draw a label-value pair row. Returns new y."""
-    ROW_H = 18
+    """
+    Draw a label-value pair row with dynamic height to fit wrapped text.
+    Returns new y after the row.
+    """
+    FONT_SIZE = 8
+    PADDING   = 5
+    LINE_H    = 13
+    lw        = w * 0.38
+    val_w     = w - lw - 12  # available width for value text
+
+    # Wrap the value text
+    val_lines = _wrap_text(str(value), val_w, FONT_SIZE, pdf_lang)
+    num_lines = max(1, len(val_lines))
+    ROW_H     = num_lines * LINE_H + PADDING * 2
+
     if shade:
         c.setFillColor(C_LIGHT)
         c.rect(x, y - ROW_H, w, ROW_H, fill=1, stroke=0)
     c.setStrokeColor(C_GREY_LINE)
     c.setLineWidth(0.4)
     c.line(x, y - ROW_H, x + w, y - ROW_H)
-    lw = w * 0.35
+
+    # Draw label (vertically centered)
     c.setFillColor(C_ACCENT2)
-    c.setFont(_font(pdf_lang, bold=True), 8)
-    c.drawString(x + 6, y - ROW_H + 6, label)
+    c.setFont(_font(pdf_lang, bold=True), FONT_SIZE)
+    c.drawString(x + 6, y - ROW_H // 2 - FONT_SIZE // 2 + 2, label)
+
+    # Draw wrapped value lines
     c.setFillColor(C_PRIMARY)
-    c.setFont(_font(pdf_lang), 8)
-    c.drawString(x + lw + 6, y - ROW_H + 6, str(value)[:80])
+    c.setFont(_font(pdf_lang), FONT_SIZE)
+    text_start_y = y - PADDING - LINE_H + 4
+    for line in val_lines:
+        c.drawString(x + lw + 6, text_start_y, line)
+        text_start_y -= LINE_H
+
     return y - ROW_H
 
 
 def draw_two_col_kv(c, y, pairs, pdf_lang, shade_alt=True):
-    """Draw a two-column grid of label:value rows."""
-    col_w = (CONTENT_W - 10) / 2
+    """
+    Draw a two-column grid of label:value rows.
+    Each row pair shares the same height (the max of the two sides).
+    """
+    FONT_SIZE = 8
+    PADDING   = 5
+    LINE_H    = 13
+    col_w     = (CONTENT_W - 10) / 2
+    val_w     = col_w * 0.62 - 12
+
     for i, (l1, v1, l2, v2) in enumerate(pairs):
         shade = (i % 2 == 0) and shade_alt
-        draw_kv_row(c, MARGIN_L,              y, col_w, l1, v1, pdf_lang, shade)
-        draw_kv_row(c, MARGIN_L + col_w + 10, y, col_w, l2, v2, pdf_lang, shade)
-        y -= 18
+
+        # Calculate the required height for both columns
+        lines1 = _wrap_text(str(v1), val_w, FONT_SIZE, pdf_lang)
+        lines2 = _wrap_text(str(v2), val_w, FONT_SIZE, pdf_lang)
+        num_lines = max(1, len(lines1), len(lines2))
+        ROW_H = num_lines * LINE_H + PADDING * 2
+
+        for col_x, label, val, val_lines in [
+            (MARGIN_L,              l1, v1, lines1),
+            (MARGIN_L + col_w + 10, l2, v2, lines2),
+        ]:
+            if shade:
+                c.setFillColor(C_LIGHT)
+                c.rect(col_x, y - ROW_H, col_w, ROW_H, fill=1, stroke=0)
+            c.setStrokeColor(C_GREY_LINE)
+            c.setLineWidth(0.4)
+            c.line(col_x, y - ROW_H, col_x + col_w, y - ROW_H)
+
+            lw = col_w * 0.38
+            c.setFillColor(C_ACCENT2)
+            c.setFont(_font(pdf_lang, bold=True), FONT_SIZE)
+            c.drawString(col_x + 6, y - ROW_H // 2 - FONT_SIZE // 2 + 2, label)
+
+            c.setFillColor(C_PRIMARY)
+            c.setFont(_font(pdf_lang), FONT_SIZE)
+            text_start_y = y - PADDING - LINE_H + 4
+            for line in val_lines:
+                c.drawString(col_x + lw + 6, text_start_y, line)
+                text_start_y -= LINE_H
+
+        y -= ROW_H
+
     return y
 
 
 def draw_description_block(c, y, label, text, pdf_lang):
     """
     Draw a full-width multi-line description block.
-    Wraps long text across multiple lines so nothing is clipped.
+    Properly wraps Chinese and English text.
     Returns new y position.
     """
     if not text or not text.strip():
         return y
 
-    fn_b = _font(pdf_lang, bold=True)
-    fn_r = _font(pdf_lang)
-    FONT_SIZE  = 8
-    LINE_H     = 13        # line height in pts
-    PADDING    = 7         # inner padding
-    LABEL_H    = 18        # height of the label bar
-    MAX_CHARS_PER_LINE = int(CONTENT_W / (FONT_SIZE * 0.52))  # approx chars per line
+    fn_b      = _font(pdf_lang, bold=True)
+    fn_r      = _font(pdf_lang)
+    FONT_SIZE = 8
+    LINE_H    = 14       # line height in pts
+    PADDING   = 8        # inner padding
+    LABEL_H   = 20       # height of the label bar
+    INNER_W   = CONTENT_W - 20  # text area width with padding
 
-    # Word-wrap the text into lines
-    words = text.split()
-    lines, current = [], ""
-    for word in words:
-        test = (current + " " + word).strip()
-        if len(test) <= MAX_CHARS_PER_LINE:
-            current = test
-        else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
+    # Wrap text using proper character-width-aware function
+    lines = _wrap_text(text, INNER_W, FONT_SIZE, pdf_lang)
+    if not lines:
+        return y
 
     total_text_h = len(lines) * LINE_H + PADDING * 2
-    block_h = LABEL_H + total_text_h
+    block_h      = LABEL_H + total_text_h
 
-    # Label bar
+    # Background
     c.setFillColor(C_LIGHT)
     c.rect(MARGIN_L, y - block_h, CONTENT_W, block_h, fill=1, stroke=0)
+    # Label bar
     c.setFillColor(C_ACCENT2)
     c.rect(MARGIN_L, y - LABEL_H, CONTENT_W, LABEL_H, fill=1, stroke=0)
-    c.setStrokeColor(C_GREY_LINE); c.setLineWidth(0.4)
+    # Border
+    c.setStrokeColor(C_GREY_LINE)
+    c.setLineWidth(0.4)
     c.rect(MARGIN_L, y - block_h, CONTENT_W, block_h, fill=0, stroke=1)
 
+    # Label text
     c.setFillColor(C_WHITE)
     c.setFont(fn_b, 8)
     c.drawString(MARGIN_L + 8, y - LABEL_H + 6, label)
 
-    # Text lines
+    # Content text lines
     ty = y - LABEL_H - PADDING - LINE_H + 4
     c.setFillColor(C_PRIMARY)
     c.setFont(fn_r, FONT_SIZE)
@@ -517,13 +639,15 @@ def draw_description_block(c, y, label, text, pdf_lang):
 def draw_qa_table(c, y, rows, pdf_lang):
     """
     rows: list of (question_str, answer_str)
-    Draws a clean alternating-row Q&A table.
+    Draws a clean alternating-row Q&A table with dynamic row heights.
     Returns new y.
     """
-    ROW_H = 17
-    q_col  = CONTENT_W * 0.72
-    a_col  = CONTENT_W * 0.28
-    hdr_h  = 20
+    FONT_SIZE = 8
+    LINE_H    = 13
+    PADDING   = 4
+    q_col     = CONTENT_W * 0.72
+    a_col     = CONTENT_W * 0.28
+    hdr_h     = 20
 
     # Header
     c.setFillColor(C_ACCENT)
@@ -537,7 +661,14 @@ def draw_qa_table(c, y, rows, pdf_lang):
     c.drawRightString(MARGIN_L + CONTENT_W - 8, y - hdr_h + 7, a_lbl)
     y -= hdr_h
 
+    q_text_w = q_col - 16  # inner width for question text
+
     for i, (q, a) in enumerate(rows):
+        # Wrap the question text
+        q_lines   = _wrap_text(q, q_text_w, FONT_SIZE, pdf_lang)
+        num_lines = max(1, len(q_lines))
+        ROW_H     = num_lines * LINE_H + PADDING * 2
+
         shade = (i % 2 == 0)
         if shade:
             c.setFillColor(C_LIGHT)
@@ -546,12 +677,15 @@ def draw_qa_table(c, y, rows, pdf_lang):
         c.setLineWidth(0.3)
         c.line(MARGIN_L, y - ROW_H, MARGIN_L + CONTENT_W, y - ROW_H)
 
-        # Question
+        # Question lines
         c.setFillColor(C_PRIMARY)
-        c.setFont(_font(pdf_lang), 8)
-        c.drawString(MARGIN_L + 8, y - ROW_H + 5, q[:80])
+        c.setFont(_font(pdf_lang), FONT_SIZE)
+        text_y = y - PADDING - LINE_H + 4
+        for line in q_lines:
+            c.drawString(MARGIN_L + 8, text_y, line)
+            text_y -= LINE_H
 
-        # Answer badge
+        # Answer badge — vertically centred in the row
         ans_en = a.strip().lower()
         if ans_en in ("yes", "是"):
             badge_c = C_GREEN
@@ -566,12 +700,13 @@ def draw_qa_table(c, y, rows, pdf_lang):
         else:
             badge_c = C_GREY_TEXT
 
-        badge_x = MARGIN_L + CONTENT_W - 60
+        badge_x = MARGIN_L + CONTENT_W - 66
+        badge_y = y - ROW_H // 2 - 7  # centre badge vertically
         c.setFillColor(badge_c)
-        c.roundRect(badge_x, y - ROW_H + 3, 52, 12, 3, fill=1, stroke=0)
+        c.roundRect(badge_x, badge_y, 58, 14, 3, fill=1, stroke=0)
         c.setFillColor(C_WHITE)
         c.setFont(_font(pdf_lang, bold=True), 7.5)
-        c.drawCentredString(badge_x + 26, y - ROW_H + 7, a[:14])
+        c.drawCentredString(badge_x + 29, badge_y + 4, a[:16])
         y -= ROW_H
 
     return y - 6
@@ -616,10 +751,7 @@ def generate_pdf():
         map_ = {"Comfortable":"舒适","Somewhat Comfortable":"较舒适","Uncomfortable":"不舒适"}
         return map_.get(val, val) if pdf_lang == "zh" else val
 
-    # ── Two-pass rendering: first count pages, then draw with correct total ──
-    #    We build a lightweight "script" of (page_number) -> content calls,
-    #    then replay with the real total_pages known in advance.
-
+    # ── Two-pass rendering ───────────────────────────────────────────────────
     def _build_pdf(buf_out, total_pages_known):
         """Inner function that actually draws everything onto buf_out."""
         c = rl_canvas.Canvas(buf_out, pagesize=A4)
@@ -627,7 +759,7 @@ def generate_pdf():
         fn_r = _font(pdf_lang)
 
         # ── helper: new page ───────────────────────────────────────────────
-        page_counter = [1]   # mutable reference
+        page_counter = [1]
         def new_page():
             c.showPage()
             page_counter[0] += 1
@@ -704,7 +836,7 @@ def generate_pdf():
         y = draw_two_col_kv(c, y, pairs, pdf_lang)
         y -= 4
 
-        # Full-width description block (handles 4-5 sentences)
+        # Full-width description block
         if desc_text:
             desc_label = loc("Description","描述")
             y = draw_description_block(c, y, desc_label, desc_text, pdf_lang)
@@ -801,33 +933,45 @@ def generate_pdf():
             day_lbl = DAY_ZH.get(day, day) if pdf_lang == "zh" else day
             comfort = fd.get('comfort_scores', {}).get(day, 3)
             appear  = fd.get('appearance_scores', {}).get(day, 3)
-            issue   = tx(fd.get('issues', {}).get(day, ''))
+            issue_raw = tx(fd.get('issues', {}).get(day, ''))
+
+            # Wrap issues text for dynamic row height
+            issues_w    = cols[3] - 10
+            issue_lines = _wrap_text(issue_raw or '—', issues_w, 7, pdf_lang)
+            num_il      = max(1, len(issue_lines))
+            DYN_ROW_H   = max(ROW_H, num_il * 11 + 8)
 
             shade = (idx % 2 == 0)
             if shade:
                 c.setFillColor(C_LIGHT)
-                c.rect(MARGIN_L, y - ROW_H, CONTENT_W, ROW_H, fill=1, stroke=0)
+                c.rect(MARGIN_L, y - DYN_ROW_H, CONTENT_W, DYN_ROW_H, fill=1, stroke=0)
             c.setStrokeColor(C_GREY_LINE); c.setLineWidth(0.3)
-            c.line(MARGIN_L, y - ROW_H, MARGIN_L + CONTENT_W, y - ROW_H)
+            c.line(MARGIN_L, y - DYN_ROW_H, MARGIN_L + CONTENT_W, y - DYN_ROW_H)
 
             cx = MARGIN_L + 6
             c.setFillColor(C_PRIMARY); c.setFont(fn_r, 8)
-            c.drawString(cx, y - ROW_H + 6, day_lbl)
+            c.drawString(cx, y - DYN_ROW_H // 2 - 4, day_lbl)
             cx += cols[0]
 
-            draw_score_bar(c, cx, y - ROW_H + 6, comfort, bar_w=55, bar_h=8)
+            bar_y = y - DYN_ROW_H // 2 - 4
+            draw_score_bar(c, cx, bar_y, comfort, bar_w=55, bar_h=8)
             c.setFillColor(score_color(comfort)); c.setFont(fn_b, 7)
-            c.drawString(cx + 58, y - ROW_H + 6, str(comfort))
+            c.drawString(cx + 58, bar_y, str(comfort))
             cx += cols[1]
 
-            draw_score_bar(c, cx, y - ROW_H + 6, appear, bar_w=55, bar_h=8)
+            draw_score_bar(c, cx, bar_y, appear, bar_w=55, bar_h=8)
             c.setFillColor(score_color(appear)); c.setFont(fn_b, 7)
-            c.drawString(cx + 58, y - ROW_H + 6, str(appear))
+            c.drawString(cx + 58, bar_y, str(appear))
             cx += cols[2]
 
+            # Draw wrapped issue lines
             c.setFillColor(C_GREY_TEXT); c.setFont(fn_r, 7)
-            c.drawString(cx, y - ROW_H + 6, (issue or '—')[:55])
-            y -= ROW_H
+            ity = y - 5
+            for il in issue_lines:
+                c.drawString(cx, ity, il)
+                ity -= 11
+
+            y -= DYN_ROW_H
 
         y -= 14
 
@@ -858,19 +1002,17 @@ def generate_pdf():
         c.drawCentredString(PAGE_W / 2, FOOTER_H + 12, conf)
 
         c.save()
-        return page_counter[0]   # actual total pages used
+        return page_counter[0]
 
     # ── Pass 1: dry-run to count pages ───────────────────────────────────────
     count_buf = io.BytesIO()
-    actual_total = _build_pdf(count_buf, 99)   # placeholder "99" during counting
+    actual_total = _build_pdf(count_buf, 99)
 
     # ── Pass 2: real render with correct page total ───────────────────────────
     buf = io.BytesIO()
     _build_pdf(buf, actual_total)
     buf.seek(0)
     return buf
-
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -880,7 +1022,7 @@ def generate_pdf():
 st.markdown("""
 <style>
   .main-header{font-size:2.6rem;font-weight:800;text-align:center;
-  color: #4299E1; /* Light gray color - change this to any color you want */
+  color: #4299E1;
   margin-bottom:1.5rem;padding:0.5rem;}
   .section-header{font-size:1.4rem;font-weight:700;color:#1a1a2e;
     margin:2rem 0 1rem;padding:0.7rem 1.2rem;
