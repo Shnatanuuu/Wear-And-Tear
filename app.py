@@ -880,9 +880,8 @@ def generate_pdf():
 st.markdown("""
 <style>
   .main-header{font-size:2.6rem;font-weight:800;text-align:center;
-    background:linear-gradient(135deg,#1a1a2e 0%,#e94560 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    margin-bottom:1.5rem;padding:0.5rem;}
+  color: #4A5568; /* Light gray color - change this to any color you want */
+  margin-bottom:1.5rem;padding:0.5rem;}
   .section-header{font-size:1.4rem;font-weight:700;color:#1a1a2e;
     margin:2rem 0 1rem;padding:0.7rem 1.2rem;
     background:linear-gradient(135deg,#f0f4ff 0%,#dde4ff 100%);
