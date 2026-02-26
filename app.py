@@ -880,7 +880,7 @@ def generate_pdf():
 st.markdown("""
 <style>
   .main-header{font-size:2.6rem;font-weight:800;text-align:center;
-  color: #4A5568; /* Light gray color - change this to any color you want */
+  color: #4299E1; /* Light gray color - change this to any color you want */
   margin-bottom:1.5rem;padding:0.5rem;}
   .section-header{font-size:1.4rem;font-weight:700;color:#1a1a2e;
     margin:2rem 0 1rem;padding:0.7rem 1.2rem;
