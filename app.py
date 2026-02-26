@@ -368,74 +368,44 @@ def _font(pdf_lang, bold=False):
     return 'Helvetica-Bold' if bold else 'Helvetica'
 
 
-def _char_width(char, font_size, pdf_lang):
-    """Estimate the rendered width of a single character."""
-    # Chinese/CJK characters are full-width (roughly 1x font_size)
-    if '\u4e00' <= char <= '\u9fff' or '\u3000' <= char <= '\u303f' or '\uff00' <= char <= '\uffef':
-        return font_size * 0.95
-    # ASCII average width
-    return font_size * 0.52
+def _make_para_style(pdf_lang, font_size=8, color=None, bold=False, alignment=TA_LEFT):
+    """Create a ParagraphStyle using the correct font for the language."""
+    from reportlab.lib.styles import ParagraphStyle as PS
+    font_name = _font(pdf_lang, bold=bold)
+    text_color = color if color is not None else C_PRIMARY
+    return PS(
+        name=f'custom_{pdf_lang}_{font_size}_{bold}',
+        fontName=font_name,
+        fontSize=font_size,
+        leading=font_size * 1.4,
+        textColor=text_color,
+        alignment=alignment,
+        wordWrap='CJK' if pdf_lang == 'zh' else 'LTR',
+    )
 
 
-def _text_width(text, font_size, pdf_lang):
-    """Estimate pixel width of a string, handling mixed CJK + ASCII."""
-    return sum(_char_width(ch, font_size, pdf_lang) for ch in text)
+def _para_height(text, width, style):
+    """Return the height a Paragraph would occupy in the given width."""
+    from reportlab.platypus import Paragraph as P
+    if not text or not str(text).strip():
+        return style.leading
+    p = P(str(text), style)
+    w, h = p.wrap(width, 9999)
+    return h
 
 
-def _wrap_text(text, max_width, font_size, pdf_lang):
+def _draw_para(c, text, x, y_top, width, style):
     """
-    Wrap text into lines that fit within max_width pixels.
-    Handles Chinese (character-level) and English (word-level) wrapping.
-    Returns a list of strings.
+    Draw a Paragraph so its top-left is at (x, y_top).
+    Returns the height consumed.
     """
-    if not text:
-        return []
-
-    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
-
-    if has_chinese:
-        # Character-level wrapping for Chinese text
-        lines = []
-        current_line = ""
-        current_width = 0
-        for char in text:
-            char_w = _char_width(char, font_size, pdf_lang)
-            if char == '\n':
-                lines.append(current_line)
-                current_line = ""
-                current_width = 0
-            elif current_width + char_w > max_width and current_line:
-                lines.append(current_line)
-                current_line = char
-                current_width = char_w
-            else:
-                current_line += char
-                current_width += char_w
-        if current_line:
-            lines.append(current_line)
-        return lines
-    else:
-        # Word-level wrapping for English text
-        lines = []
-        for paragraph in text.split('\n'):
-            words = paragraph.split()
-            if not words:
-                lines.append("")
-                continue
-            current_line = ""
-            current_width = 0
-            for word in words:
-                word_w = _text_width(word + " ", font_size, pdf_lang)
-                if current_width + word_w > max_width and current_line:
-                    lines.append(current_line.rstrip())
-                    current_line = word + " "
-                    current_width = word_w
-                else:
-                    current_line += word + " "
-                    current_width += word_w
-            if current_line.strip():
-                lines.append(current_line.rstrip())
-        return lines
+    from reportlab.platypus import Paragraph as P
+    if not text or not str(text).strip():
+        return style.leading
+    p = P(str(text), style)
+    w, h = p.wrap(width, 9999)
+    p.drawOn(c, x, y_top - h)
+    return h
 
 
 def draw_page_frame(c, page_num, total_pages, pdf_lang, city, city_zh, gen_time):
@@ -499,19 +469,19 @@ def draw_section_header(c, y, label, pdf_lang):
 
 def draw_kv_row(c, x, y, w, label, value, pdf_lang, shade=False):
     """
-    Draw a label-value pair row with dynamic height to fit wrapped text.
+    Draw a label-value pair row with Paragraph for proper wrapping.
     Returns new y after the row.
     """
     FONT_SIZE = 8
-    PADDING   = 5
-    LINE_H    = 13
+    PADDING   = 6
     lw        = w * 0.38
-    val_w     = w - lw - 12  # available width for value text
+    val_w     = w - lw - 18
 
-    # Wrap the value text
-    val_lines = _wrap_text(str(value), val_w, FONT_SIZE, pdf_lang)
-    num_lines = max(1, len(val_lines))
-    ROW_H     = num_lines * LINE_H + PADDING * 2
+    lbl_style = _make_para_style(pdf_lang, font_size=FONT_SIZE, color=C_ACCENT2, bold=True)
+    val_style = _make_para_style(pdf_lang, font_size=FONT_SIZE, color=C_PRIMARY)
+
+    val_h = _para_height(str(value), val_w, val_style)
+    ROW_H = val_h + PADDING * 2
 
     if shade:
         c.setFillColor(C_LIGHT)
@@ -520,45 +490,38 @@ def draw_kv_row(c, x, y, w, label, value, pdf_lang, shade=False):
     c.setLineWidth(0.4)
     c.line(x, y - ROW_H, x + w, y - ROW_H)
 
-    # Draw label (vertically centered)
-    c.setFillColor(C_ACCENT2)
-    c.setFont(_font(pdf_lang, bold=True), FONT_SIZE)
-    c.drawString(x + 6, y - ROW_H // 2 - FONT_SIZE // 2 + 2, label)
-
-    # Draw wrapped value lines
-    c.setFillColor(C_PRIMARY)
-    c.setFont(_font(pdf_lang), FONT_SIZE)
-    text_start_y = y - PADDING - LINE_H + 4
-    for line in val_lines:
-        c.drawString(x + lw + 6, text_start_y, line)
-        text_start_y -= LINE_H
+    lbl_h = _para_height(label, lw - 12, lbl_style)
+    lbl_top = y - ROW_H / 2 + lbl_h / 2
+    _draw_para(c, label, x + 6, lbl_top, lw - 12, lbl_style)
+    _draw_para(c, str(value), x + lw + 6, y - PADDING, val_w, val_style)
 
     return y - ROW_H
 
 
 def draw_two_col_kv(c, y, pairs, pdf_lang, shade_alt=True):
     """
-    Draw a two-column grid of label:value rows.
+    Draw a two-column grid of label:value rows using Paragraph for wrapping.
     Each row pair shares the same height (the max of the two sides).
     """
     FONT_SIZE = 8
-    PADDING   = 5
-    LINE_H    = 13
+    PADDING   = 6
     col_w     = (CONTENT_W - 10) / 2
-    val_w     = col_w * 0.62 - 12
+    lw        = col_w * 0.38
+    val_w     = col_w - lw - 18
+
+    lbl_style = _make_para_style(pdf_lang, font_size=FONT_SIZE, color=C_ACCENT2, bold=True)
+    val_style = _make_para_style(pdf_lang, font_size=FONT_SIZE, color=C_PRIMARY)
 
     for i, (l1, v1, l2, v2) in enumerate(pairs):
         shade = (i % 2 == 0) and shade_alt
 
-        # Calculate the required height for both columns
-        lines1 = _wrap_text(str(v1), val_w, FONT_SIZE, pdf_lang)
-        lines2 = _wrap_text(str(v2), val_w, FONT_SIZE, pdf_lang)
-        num_lines = max(1, len(lines1), len(lines2))
-        ROW_H = num_lines * LINE_H + PADDING * 2
+        h1 = _para_height(str(v1), val_w, val_style)
+        h2 = _para_height(str(v2), val_w, val_style)
+        ROW_H = max(h1, h2) + PADDING * 2
 
-        for col_x, label, val, val_lines in [
-            (MARGIN_L,              l1, v1, lines1),
-            (MARGIN_L + col_w + 10, l2, v2, lines2),
+        for col_x, label, val in [
+            (MARGIN_L,              l1, v1),
+            (MARGIN_L + col_w + 10, l2, v2),
         ]:
             if shade:
                 c.setFillColor(C_LIGHT)
@@ -567,17 +530,10 @@ def draw_two_col_kv(c, y, pairs, pdf_lang, shade_alt=True):
             c.setLineWidth(0.4)
             c.line(col_x, y - ROW_H, col_x + col_w, y - ROW_H)
 
-            lw = col_w * 0.38
-            c.setFillColor(C_ACCENT2)
-            c.setFont(_font(pdf_lang, bold=True), FONT_SIZE)
-            c.drawString(col_x + 6, y - ROW_H // 2 - FONT_SIZE // 2 + 2, label)
-
-            c.setFillColor(C_PRIMARY)
-            c.setFont(_font(pdf_lang), FONT_SIZE)
-            text_start_y = y - PADDING - LINE_H + 4
-            for line in val_lines:
-                c.drawString(col_x + lw + 6, text_start_y, line)
-                text_start_y -= LINE_H
+            lbl_h = _para_height(label, lw - 12, lbl_style)
+            lbl_top = y - ROW_H / 2 + lbl_h / 2
+            _draw_para(c, label, col_x + 6, lbl_top, lw - 12, lbl_style)
+            _draw_para(c, str(val), col_x + lw + 6, y - PADDING, val_w, val_style)
 
         y -= ROW_H
 
@@ -586,28 +542,20 @@ def draw_two_col_kv(c, y, pairs, pdf_lang, shade_alt=True):
 
 def draw_description_block(c, y, label, text, pdf_lang):
     """
-    Draw a full-width multi-line description block.
-    Properly wraps Chinese and English text.
+    Draw a full-width multi-line description block using Paragraph for proper wrapping.
     Returns new y position.
     """
     if not text or not text.strip():
         return y
 
-    fn_b      = _font(pdf_lang, bold=True)
-    fn_r      = _font(pdf_lang)
     FONT_SIZE = 8
-    LINE_H    = 14       # line height in pts
-    PADDING   = 8        # inner padding
-    LABEL_H   = 20       # height of the label bar
-    INNER_W   = CONTENT_W - 20  # text area width with padding
+    PADDING   = 8
+    LABEL_H   = 20
+    INNER_W   = CONTENT_W - 20
 
-    # Wrap text using proper character-width-aware function
-    lines = _wrap_text(text, INNER_W, FONT_SIZE, pdf_lang)
-    if not lines:
-        return y
-
-    total_text_h = len(lines) * LINE_H + PADDING * 2
-    block_h      = LABEL_H + total_text_h
+    val_style = _make_para_style(pdf_lang, font_size=FONT_SIZE, color=C_PRIMARY)
+    text_h    = _para_height(text, INNER_W, val_style)
+    block_h   = LABEL_H + text_h + PADDING * 2
 
     # Background
     c.setFillColor(C_LIGHT)
@@ -622,16 +570,11 @@ def draw_description_block(c, y, label, text, pdf_lang):
 
     # Label text
     c.setFillColor(C_WHITE)
-    c.setFont(fn_b, 8)
+    c.setFont(_font(pdf_lang, bold=True), 8)
     c.drawString(MARGIN_L + 8, y - LABEL_H + 6, label)
 
-    # Content text lines
-    ty = y - LABEL_H - PADDING - LINE_H + 4
-    c.setFillColor(C_PRIMARY)
-    c.setFont(fn_r, FONT_SIZE)
-    for line in lines:
-        c.drawString(MARGIN_L + 10, ty, line)
-        ty -= LINE_H
+    # Content using Paragraph (handles CJK wrapping perfectly)
+    _draw_para(c, text, MARGIN_L + 10, y - LABEL_H - PADDING, INNER_W, val_style)
 
     return y - block_h - 6
 
